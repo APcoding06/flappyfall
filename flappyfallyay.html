@@ -1,0 +1,2459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Flappyfall &mdash; Flappy RPG</title>
+<style>
+  :root{
+    /* arcade palette: sun-bleached card stock, hard ink lines, no gradients */
+    --ink:#43372a; --dim:#8a7a63; --gold:#e8871e; --gold-d:#a85c0b;
+    --panel:#f6ecd2; --panel-2:#efe1bf; --line:#43372a;
+    --good:#3f9b45; --bad:#c8452f; --xp:#3f7fd6;
+    --sky:#4ec0ca;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0; background:#2b8f99;
+    font-family:Verdana,Geneva,"DejaVu Sans",sans-serif; color:var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden; user-select:none;
+  }
+  #stage{
+    position:relative; width:min(480px,100vw); height:min(720px,100vh);
+    aspect-ratio:480/720; max-height:100vh;
+    overflow:hidden;
+  }
+  #game{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none;z-index:0}
+
+  /* overlays */
+  .overlay{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px;
+    padding:20px 18px; text-align:center;
+    /* no backdrop-filter: chromium floats the canvas above a backdrop-filtered
+       sibling and the whole panel vanishes. translateZ forces its own layer,
+       which fixes it. lost an hour to that one. */
+    background:rgba(24,58,62,.86);
+    animation:fade .22s ease both; z-index:2; transform:translateZ(0);
+  }
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .hidden{display:none !important}
+
+  /* flat arcade lettering: white with a hard offset, no glow, no gradient */
+  h1{
+    margin:0; font-size:42px; line-height:1; color:#fff; letter-spacing:0;
+    text-shadow:3px 3px 0 var(--ink);
+  }
+  h1 small{
+    display:block;font-size:12px;letter-spacing:.3px;color:#fff9e3;
+    text-shadow:2px 2px 0 var(--ink);margin-top:9px;
+  }
+  h2{margin:0 0 2px; font-size:22px; color:#fff; text-shadow:2px 2px 0 var(--ink)}
+  .muted{color:#fff6dd;font-size:12.5px;margin:0;text-shadow:1px 1px 0 rgba(67,55,42,.7)}
+
+  /* chunky arcade buttons: flat fill, ink outline, hard shadow that sinks */
+  .btn{
+    font:inherit; font-size:15px; font-weight:bold; letter-spacing:0;
+    padding:11px 24px; min-width:168px; cursor:pointer; color:#fffdf5;
+    background:#e8871e; border:3px solid var(--ink); border-radius:3px;
+    box-shadow:4px 4px 0 var(--ink);
+    text-shadow:1px 1px 0 rgba(67,55,42,.55);
+    transition:transform .05s, box-shadow .05s, background .12s;
+  }
+  .btn:hover{background:#f39a30}
+  .btn:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--ink)}
+  .btn.ghost{
+    background:var(--panel); color:var(--ink); text-shadow:none;
+    font-size:13.5px; padding:9px 18px; min-width:126px;
+  }
+  .btn.ghost:hover{background:#fff7e2}
+  .btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:2px 2px 0 var(--ink)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+  /* coins + level bar */
+  .wallet{display:flex;gap:16px;align-items:center;font-size:15px;font-weight:bold;color:#fff;text-shadow:2px 2px 0 var(--ink)}
+  .coinpip{
+    display:inline-block;width:14px;height:14px;border-radius:50%;
+    background:radial-gradient(circle at 32% 30%, #fff2b8, var(--gold) 55%, var(--gold-d));
+    box-shadow:0 0 8px rgba(255,199,63,.5); vertical-align:-2px; margin-right:6px;
+  }
+  .lvlbox{width:min(300px,86%)}
+  .lvlrow{display:flex;justify-content:space-between;font-size:11px;color:#e8f6f3;margin-bottom:4px;text-shadow:1px 1px 0 rgba(67,55,42,.6)}
+  .bar{height:9px;border-radius:2px;background:#e0d3ae;overflow:hidden;border:2px solid var(--line)}
+  .bar > i{display:block;height:100%;background:var(--xp);transition:width .5s ease}
+
+  /* the bird you're flying */
+  .plate{
+    display:flex;align-items:center;gap:14px;text-align:left;
+    background:var(--panel); border:3px solid var(--line); border-radius:4px;
+    padding:12px 18px 12px 12px; width:min(320px,90%);
+  }
+  .plate canvas{width:56px;height:56px;flex:0 0 56px}
+  .plate .nm{font-size:17px;font-weight:bold}
+  .plate .ab{font-size:11.5px;color:#8a5310;margin-top:2px}
+
+  // ---- aviary ----
+  #shop{justify-content:flex-start;gap:10px;padding-top:18px}
+  .shophead{display:flex;align-items:center;justify-content:space-between;width:100%;padding:0 4px}
+  .cards{
+    width:100%; overflow-y:auto; display:flex; flex-direction:column; gap:9px;
+    padding:4px 4px 8px; -webkit-overflow-scrolling:touch; flex:1;
+  }
+  .cards::-webkit-scrollbar{width:6px}
+  .cards::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .card{
+    display:grid; grid-template-columns:58px 1fr auto; gap:12px; align-items:center;
+    background:var(--panel); border:3px solid var(--line); border-radius:4px;
+    padding:10px 12px; text-align:left; transition:border-color .15s, background .15s;
+  }
+  .card.owned{background:var(--panel-2)}
+  .card.active{border-color:var(--gold);box-shadow:3px 3px 0 var(--gold)}
+  .card.locked{opacity:.62}
+  .card canvas{width:52px;height:52px}
+  .card .nm{font-size:15px;font-weight:bold;display:flex;align-items:center;gap:7px}
+  .tag{font-size:9px;padding:1px 5px;border-radius:2px;background:var(--ink);color:var(--panel);font-weight:bold}
+  .tag.on{background:var(--gold);color:#fffdf5}
+  .card .ab{font-size:11px;color:#8a5310;margin:3px 0 5px;line-height:1.3}
+  .stats{display:flex;gap:5px}
+  .stat{flex:1;max-width:46px}
+  .stat b{display:block;font-size:8px;letter-spacing:.6px;color:var(--dim);font-weight:normal;margin-bottom:2px}
+  .sbar{height:5px;border-radius:1px;background:#ddd0aa;overflow:hidden}
+  .sbar i{display:block;height:100%;background:var(--gold);border-radius:3px}
+  .cta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:78px}
+  .price{font-size:13px;font-weight:bold;color:#8a5310;white-space:nowrap}
+  .price.no{color:var(--bad)}
+  .mini{
+    font:inherit;font-size:11px;font-weight:bold;padding:6px 10px;cursor:pointer;
+    border:2px solid var(--line);border-radius:3px;background:#e6d8b4;color:var(--ink);white-space:nowrap;
+  }
+  .mini.buy{background:var(--gold);color:#fffdf5}
+  .mini.sel{background:#3f7fd6;color:#fffdf5}
+  .mini:disabled{opacity:.45;cursor:not-allowed}
+  .req{font-size:10px;color:var(--dim);white-space:nowrap}
+
+  /* hud */
+  #hud{position:absolute;inset:0;pointer-events:none;padding:14px 16px;z-index:1}
+  .hscore{
+    position:absolute;top:44px;left:0;right:0;text-align:center;font-size:62px;font-weight:bold;
+    color:#fff;text-shadow:3px 3px 0 var(--ink),-3px 3px 0 var(--ink),3px -3px 0 var(--ink),-3px -3px 0 var(--ink);
+  }
+  .hcoins{position:absolute;top:64px;right:18px;font-size:16px;font-weight:bold;color:#fff;text-shadow:2px 2px 0 var(--ink)}
+  .pausebtn{
+    position:absolute;top:14px;right:14px;width:44px;height:44px;padding:0;
+    pointer-events:auto;cursor:pointer;border-radius:4px;box-shadow:3px 3px 0 var(--ink);
+    background:var(--panel);border:3px solid var(--ink);
+    display:flex;align-items:center;justify-content:center;gap:4px;
+    transition:background .15s,border-color .15s,transform .06s;
+  }
+  .pausebtn i{display:block;width:4.5px;height:15px;border-radius:1px;background:var(--ink)}
+  .pausebtn:hover{background:#fff7e2}
+  .pausebtn:hover i{background:var(--gold)}
+  .pausebtn:active{transform:scale(.93)}
+  .habil{position:absolute;top:16px;left:16px;display:flex;align-items:center;gap:6px;font-size:11px;color:#fff;text-shadow:2px 2px 0 var(--ink)}
+  .pip{width:11px;height:11px;border-radius:50%;border:2px solid rgba(255,255,255,.8);background:transparent}
+  .pip.full{background:var(--gold);border-color:#fff;box-shadow:0 0 9px var(--gold)}
+  .hint{
+    position:absolute;bottom:150px;left:0;right:0;text-align:center;font-size:14px;letter-spacing:.5px;
+    color:#fff;text-shadow:2px 2px 0 var(--ink);animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.45;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}}
+
+  /* game over */
+  .rewards{
+    display:flex;width:min(330px,92%);background:var(--panel);
+    border:3px solid var(--line);border-radius:4px;overflow:hidden;
+  }
+  .rw{flex:1;padding:12px 4px}
+  .rw + .rw{border-left:2px solid #e0d3ae}
+  .rw b{display:block;font-size:23px;line-height:1.1}
+  .rw span{font-size:9.5px;letter-spacing:.3px;color:var(--dim)}
+  .rw.g b{color:#c8790f}
+  .newbest{color:var(--good);font-size:12px;letter-spacing:.5px;font-weight:bold;animation:pulse 1s infinite}
+
+  #toast{
+    position:absolute;left:50%;top:32%;transform:translateX(-50%);
+    padding:9px 18px;border-radius:3px;font-size:14px;font-weight:bold;
+    background:var(--panel);border:3px solid var(--ink);color:var(--ink);box-shadow:3px 3px 0 var(--ink);
+    opacity:0;pointer-events:none;transition:opacity .3s, transform .3s;white-space:nowrap;z-index:5;
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(-12px)}
+
+  /* sign in */
+  .form{display:flex;flex-direction:column;gap:11px;width:min(300px,88%)}
+  .field{text-align:left}
+  .field label{display:block;font-size:10px;color:#fff3d4;margin:0 0 5px 2px;text-shadow:1px 1px 0 rgba(67,55,42,.6)}
+  .field input{
+    width:100%;font:inherit;font-size:15px;color:var(--ink);background:#fffaea;
+    border:3px solid var(--line);border-radius:3px;padding:10px 12px;outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .field input:focus{border-color:var(--gold);box-shadow:2px 2px 0 var(--gold)}
+  .err{min-height:17px;font-size:12px;color:#ffb3a4;line-height:1.35}
+  .link{
+    background:none;border:0;color:#8a5310;font:inherit;font-size:12px;
+    cursor:pointer;text-decoration:underline;padding:4px;
+  }
+  .link:hover{filter:brightness(1.15)}
+  .note{font-size:10.5px;color:#cfe9e4;line-height:1.5;max-width:290px;margin:0}
+
+  /* setup panel */
+  #cloud{justify-content:flex-start;gap:9px;padding-top:16px;overflow-y:auto}
+  .setup{
+    width:min(330px,94%);text-align:left;font-size:12px;line-height:1.5;color:var(--ink);
+    background:var(--panel);border:3px solid var(--line);border-radius:4px;padding:10px 12px;
+  }
+  .setup b{color:#8a5310;margin-right:4px}
+  .setup .lit{color:var(--ink)}
+  .setup .field{margin-top:7px}
+  #sqlBox{
+    width:100%;height:74px;margin-top:7px;resize:vertical;
+    font-family:Consolas,Menlo,monospace;font-size:9.5px;line-height:1.35;
+    color:#2f3b2c;background:#fffaea;border:2px solid var(--line);border-radius:3px;
+    padding:7px 8px;white-space:pre;overflow:auto;user-select:text;
+  }
+  #cloud .mini{margin-top:6px}
+  .who{font-size:11px;color:#dff2ee}
+  .who b{color:#fff}
+
+  /* leaderboard */
+  #menu{overflow-y:auto;gap:10px}
+  .board{
+    width:min(320px,90%);background:var(--panel);border:3px solid var(--line);
+    border-radius:4px;overflow:hidden;flex:0 0 auto;
+  }
+  .boardhead b{color:#ffcf7a;font-weight:bold}
+  .boardhead{
+    display:flex;justify-content:space-between;padding:8px 13px;
+    font-size:9.5px;letter-spacing:.4px;color:var(--dim);
+    background:var(--ink);color:var(--panel);border-bottom:0;
+  }
+  .rows{max-height:158px;overflow-y:auto}
+  .rows::-webkit-scrollbar{width:5px}
+  .rows::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .lrow{
+    display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:9px;
+    padding:6px 13px;font-size:13px;text-align:left;
+  }
+  .lrow + .lrow{border-top:2px solid #e0d3ae}
+  .lrow.me{background:#ffe9b8}
+  .lrow .rk{font-size:12px;font-weight:bold;color:var(--dim);text-align:center}
+  .lrow:first-child .rk{color:#c8790f}
+  .lrow .nm2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lrow.me .nm2{color:#8a5310;font-weight:bold}
+  .lrow .lv{font-size:10px;color:var(--dim);letter-spacing:.5px}
+  .lrow .bs{font-weight:bold;font-size:15px}
+  .lrow.gap{border-top:1px dashed var(--line)}
+  .boardempty{
+    padding:12px 13px;font-size:11.5px;color:var(--dim);line-height:1.45;text-align:left;
+    user-select:text;word-break:break-word;   /* so a diagnosis can be copied out */
+  }
+
+  .foot{position:absolute;bottom:12px;left:0;right:0;font-size:10px;color:#bfe6e0}
+  @media (max-height:640px){
+    h1{font-size:34px} .hscore{font-size:48px;top:34px}
+    .plate{padding:8px 14px 8px 8px} .plate canvas{width:44px;height:44px;flex-basis:44px}
+    .rows{max-height:96px}
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <!-- ============ HUD ============ -->
+  <div id="hud" class="hidden">
+    <div class="hscore" id="hudScore">0</div>
+    <button class="pausebtn" id="btnPause" type="button" aria-label="Pause"><i></i><i></i></button>
+    <div class="hcoins"><i class="coinpip"></i><span id="hudCoins">0</span></div>
+    <div class="habil" id="hudAbil"></div>
+    <div class="hint" id="hudHint">TAP TO FLAP</div>
+  </div>
+
+  <!-- ============ SIGN IN ============ -->
+  <div id="login" class="overlay">
+    <h1>FLAPPYFALL<small>A FLAPPY RPG</small></h1>
+    <form class="form" id="loginForm">
+      <div class="field">
+        <label for="userIn">USERNAME</label>
+        <input id="userIn" name="username" autocomplete="username" maxlength="16"
+               spellcheck="false" autocapitalize="none" autocorrect="off">
+      </div>
+      <div class="field">
+        <label for="passIn">PASSWORD</label>
+        <input id="passIn" name="password" type="password" autocomplete="current-password" maxlength="64">
+      </div>
+      <div class="err" id="loginErr"></div>
+      <button class="btn" id="btnAuth" type="submit">SIGN IN</button>
+    </form>
+    <button class="link" id="btnToggleAuth">No account? Create one</button>
+    <p class="note">
+      Local profile only. Your flock, coins and record live in this browser —
+      there is no server, so treat this as a save slot, not real security.
+    </p>
+  </div>
+
+  <!-- ============ MENU ============ -->
+  <div id="menu" class="overlay hidden">
+    <h1>FLAPPYFALL<small>A FLAPPY RPG</small></h1>
+    <div class="wallet">
+      <span><i class="coinpip"></i><span id="mCoins">0</span></span>
+      <span>BEST <span id="mBest">0</span></span>
+    </div>
+    <div class="lvlbox">
+      <div class="lvlrow"><span id="mLvl">LEVEL 1</span><span id="mXp">0 / 50 XP</span></div>
+      <div class="bar"><i id="mXpBar" style="width:0%"></i></div>
+    </div>
+    <div class="plate">
+      <canvas id="mBird" width="112" height="112"></canvas>
+      <div>
+        <div class="nm" id="mName">Sparrow</div>
+        <div class="ab" id="mAbil">No special ability</div>
+      </div>
+    </div>
+    <div class="board">
+      <div class="boardhead"><span>LEADERBOARD · <b id="lbScope">THIS BROWSER</b></span><span>BEST</span></div>
+      <div class="rows" id="lbRows"></div>
+    </div>
+    <div class="row"><button class="btn" id="btnPlay">FLY</button></div>
+    <div class="row">
+      <button class="btn ghost" id="btnShop">AVIARY</button>
+      <button class="btn ghost" id="btnSound">SOUND: ON</button>
+    </div>
+    <div class="who">SIGNED IN AS <b id="mUser">—</b> · <button class="link" id="btnLogout">LOG OUT</button></div>
+    <div class="foot" id="mFoot">SPACE / CLICK / TAP TO FLAP</div>
+  </div>
+
+  <!-- ============ AVIARY ============ -->
+  <div id="shop" class="overlay hidden">
+    <div class="shophead">
+      <h2>AVIARY</h2>
+      <div class="wallet"><span><i class="coinpip"></i><span id="sCoins">0</span></span></div>
+    </div>
+    <div class="lvlbox" style="width:100%">
+      <div class="lvlrow"><span id="sLvl">LEVEL 1</span><span id="sXp">0 / 50 XP</span></div>
+      <div class="bar"><i id="sXpBar" style="width:0%"></i></div>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="row">
+      <button class="btn ghost" id="btnBack">BACK</button>
+      <button class="btn" id="btnShopPlay">FLY</button>
+    </div>
+  </div>
+
+  <!-- ============ WORLDWIDE SETUP ============ -->
+  <div id="cloud" class="overlay hidden">
+    <h2>WORLDWIDE BOARD</h2>
+    <p class="muted">Three steps, no coding. Then every player shares one leaderboard.</p>
+
+    <div class="setup">
+      <b>1.</b> Make a free project at <span class="lit">supabase.com</span> (New project — any name).
+    </div>
+    <div class="setup">
+      <b>2.</b> Open <span class="lit">SQL Editor → New query</span>, paste this, press Run:
+      <textarea id="sqlBox" readonly spellcheck="false"></textarea>
+      <button class="mini" id="btnCopySql">COPY THE SQL</button>
+    </div>
+    <div class="setup">
+      <b>3.</b> From <span class="lit">Settings → API</span>, paste both here:
+      <div class="field"><label for="cloudUrl">PROJECT URL</label>
+        <input id="cloudUrl" spellcheck="false" placeholder="https://xxxx.supabase.co"></div>
+      <div class="field"><label for="cloudKey">ANON PUBLIC KEY</label>
+        <input id="cloudKey" spellcheck="false" placeholder="eyJ..."></div>
+      <div class="err" id="cloudMsg"></div>
+    </div>
+
+    <div class="row">
+      <button class="btn" id="btnCloudSave">SAVE &amp; TEST</button>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="btnCloudClose">BACK</button>
+      <button class="btn ghost" id="btnCloudClear">CLEAR</button>
+    </div>
+    <p class="note">Saved here it works on this browser. To share the board with
+      everyone, put the same two values in the CLOUD block at the top of this file
+      and hand out that file.</p>
+  </div>
+
+  <!-- ============ PAUSED ============ -->
+  <div id="pause" class="overlay hidden">
+    <h2>PAUSED</h2>
+    <p class="muted" id="pauseInfo">Score 0 · 0 coins this run</p>
+    <div class="row"><button class="btn" id="btnResume">RESUME</button></div>
+    <div class="row">
+      <button class="btn ghost" id="btnPauseRestart">RESTART</button>
+      <button class="btn ghost" id="btnPauseMenu">MENU</button>
+    </div>
+    <div class="foot">P OR ESC TO RESUME</div>
+  </div>
+
+  <!-- ============ GAME OVER ============ -->
+  <div id="over" class="overlay hidden">
+    <h2 id="oTitle">DOWNED</h2>
+    <p class="muted" id="oFlavor">The pipes claim another.</p>
+    <div class="rewards">
+      <div class="rw"><b id="oScore">0</b><span>SCORE</span></div>
+      <div class="rw"><b id="oBest">0</b><span>BEST</span></div>
+      <div class="rw g"><b id="oCoins">0</b><span>COINS</span></div>
+      <div class="rw"><b id="oXp">0</b><span>XP</span></div>
+    </div>
+    <div id="oNewBest" class="newbest hidden">NEW RECORD</div>
+    <div class="lvlbox">
+      <div class="lvlrow"><span id="oLvl">LEVEL 1</span><span id="oXpTxt">0 / 50 XP</span></div>
+      <div class="bar"><i id="oXpBar" style="width:0%"></i></div>
+    </div>
+    <div class="row"><button class="btn" id="btnRetry">FLY AGAIN</button></div>
+    <div class="row">
+      <button class="btn ghost" id="btnOverShop">AVIARY</button>
+      <button class="btn ghost" id="btnMenu">MENU</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<!-- The database setup, kept here so this file is the only thing you need.
+     Shown (and copyable) inside the game under "Why not worldwide?". -->
+<script type="text/plain" id="sqlSetup">-- Flappyfall worldwide leaderboard — Supabase setup.
+-- Paste into Supabase > SQL Editor > New query > Run. Safe to run twice.
+
+create table if not exists public.scores (
+  id         text primary key,              -- account name, lowercased
+  name       text not null,                 -- as typed, for display
+  owner_key  text not null,                 -- claims the name; stops impostors
+  best       int  not null check (best between 1 and 5000),
+  level      int  not null check (level between 1 and 99),
+  updated_at timestamptz not null default now()
+);
+create index if not exists scores_best_idx on public.scores (best desc);
+
+-- anyone may READ the board; nobody may write it directly
+alter table public.scores enable row level security;
+drop policy if exists "anyone can read the board" on public.scores;
+create policy "anyone can read the board"
+  on public.scores for select to anon, authenticated using (true);
+grant usage on schema public to anon, authenticated;
+grant select on public.scores to anon, authenticated;
+
+-- the only way in: a name belongs to the first key that claims it,
+-- and a score only ever moves up
+create or replace function public.submit_score(
+  p_name text, p_key text, p_best int, p_level int
+) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id  text := lower(btrim(p_name));
+  v_row public.scores%rowtype;
+begin
+  if v_id !~ '^[a-z0-9_-]{3,16}$' then return 'bad_name'; end if;
+  if lower(btrim(p_key)) !~ '^[a-f0-9]{8,64}$' then return 'bad_key'; end if;
+  if p_best  is null or p_best  < 1 or p_best  > 5000 then return 'bad_score'; end if;
+  if p_level is null or p_level < 1 or p_level > 99   then return 'bad_level'; end if;
+
+  select * into v_row from public.scores where id = v_id;
+
+  if not found then
+    insert into public.scores (id, name, owner_key, best, level)
+    values (v_id, btrim(p_name), lower(btrim(p_key)), p_best, p_level);
+    return 'added';
+  end if;
+
+  if v_row.owner_key <> lower(btrim(p_key)) then return 'name_taken'; end if;
+
+  if p_best <= v_row.best then
+    update public.scores set level = p_level, updated_at = now() where id = v_id;
+    return 'unchanged';
+  end if;
+
+  update public.scores set best = p_best, level = p_level, updated_at = now() where id = v_id;
+  return 'improved';
+end;
+$$;
+
+revoke all on function public.submit_score(text, text, int, int) from public;
+grant execute on function public.submit_score(text, text, int, int) to anon, authenticated;
+</script>
+<script>
+/* flappyfall. flappy bird with a shop bolted on.
+   coins buy birds, birds change how the run feels. */
+(() => {
+'use strict';
+
+const W = 480, H = 720, GROUND_H = 96, SKY_H = H - GROUND_H;
+const BIRD_X = 140;
+
+// the roster. every bird is a physics profile, not a recolour.
+// gravity px/s^2, flap px/s, hitScale shrinks the hitbox.
+const BIRDS = [
+  {
+    id:'sparrow', name:'Sparrow', cost:0, reqLevel:1,
+    gravity:1750, flap:-500, maxFall:760, speed:1.00, hitScale:0.80, coinMult:1.00,
+    ability:null,
+    abilityText:'No special ability. Honest wings, honest work.',
+    pal:{body:'#e8c93f', belly:'#fff0b0', wing:'#c79a1c', beak:'#f07f2a', eye:'#241d10'},
+    deco:'none'
+  },
+  {
+    id:'knight', name:'Iron Knight', cost:220, reqLevel:2,
+    gravity:2750, flap:-640, maxFall:1080, speed:0.94, hitScale:0.88, coinMult:1.15,
+    ability:'armor', charges:1,
+    abilityText:'ARMOR - survives one crash per run. Drops like a dropped anvil.',
+    pal:{body:'#8e97ad', belly:'#c3cad8', wing:'#5f6779', beak:'#d8b23a', eye:'#1a1c24'},
+    deco:'helm'
+  },
+  {
+    id:'ghost', name:'Wisp', cost:360, reqLevel:3,
+    gravity:1180, flap:-410, maxFall:520, speed:1.02, hitScale:0.74, coinMult:1.10,
+    ability:'phase', charges:1,
+    abilityText:'PHASE - drifts through one pipe per run. Floaty, weak flap.',
+    pal:{body:'#a9d8ff', belly:'#e9f6ff', wing:'#7fb6e8', beak:'#cfe6f7', eye:'#2b3a5c'},
+    deco:'wisp'
+  },
+  {
+    id:'magpie', name:'Magpie', cost:530, reqLevel:4,
+    gravity:1850, flap:-515, maxFall:800, speed:1.00, hitScale:0.80, coinMult:1.45,
+    ability:'magnet', magnet:112,
+    abilityText:'GREED - pulls nearby coins in, and every coin is worth more.',
+    pal:{body:'#2f3350', belly:'#f2f4ff', wing:'#1d2038', beak:'#e2c04a', eye:'#f2f4ff'},
+    deco:'magpie'
+  },
+  {
+    id:'owl', name:'Night Owl', cost:740, reqLevel:5,
+    gravity:2050, flap:-540, maxFall:900, speed:0.96, hitScale:0.84, coinMult:1.25,
+    ability:'glide',
+    abilityText:'GLIDE - hold to feather your fall. Heavy, but never rushed.',
+    pal:{body:'#a3714a', belly:'#e8cfae', wing:'#7a5232', beak:'#f0b13c', eye:'#f7e9c8'},
+    deco:'owl'
+  },
+  {
+    id:'falcon', name:'Falcon', cost:1000, reqLevel:7,
+    gravity:2250, flap:-560, maxFall:980, speed:1.38, hitScale:0.66, coinMult:1.70,
+    ability:null,
+    abilityText:'Tiny hitbox, brutal pace. The world comes at you 38% faster.',
+    pal:{body:'#5d6f8c', belly:'#e6ecf5', wing:'#39465c', beak:'#f5c542', eye:'#22303f'},
+    deco:'falcon'
+  },
+
+  /* everything after the falcon */
+  {
+    id:'jay', name:'Swift Jay', cost:1250, reqLevel:8,
+    gravity:1650, flap:-470, maxFall:700, speed:1.05, hitScale:0.72, coinMult:1.35,
+    ability:null,
+    abilityText:'Light bones, small frame. No trick — just the kindest hands in the aviary.',
+    pal:{body:'#4a7fd4', belly:'#dfe9ff', wing:'#2f5aa8', beak:'#2b2f3a', eye:'#151a26'},
+    deco:'crest'
+  },
+  {
+    id:'phoenix', name:'Phoenix', cost:1600, reqLevel:9,
+    gravity:2100, flap:-540, maxFall:880, speed:1.10, hitScale:0.80, coinMult:2.00,
+    ability:'phoenix', charges:1,
+    abilityText:'REBIRTH - dies once per run, then comes back burning at mid-height.',
+    pal:{body:'#ff6b2c', belly:'#ffd08a', wing:'#d63f16', beak:'#ffca3a', eye:'#4a1505'},
+    deco:'flame'
+  },
+  {
+    id:'roc', name:'Stone Roc', cost:2000, reqLevel:10,
+    gravity:3200, flap:-700, maxFall:1250, speed:0.90, hitScale:0.95, coinMult:1.70,
+    ability:'armor', charges:2,
+    abilityText:'ARMOR x2 - shrugs off two crashes a run. Enormous, and falls like a cliff.',
+    pal:{body:'#7d7a72', belly:'#b8b3a6', wing:'#565349', beak:'#cfa04a', eye:'#1b1a16'},
+    deco:'stone'
+  },
+  {
+    id:'mirage', name:'Mirage', cost:2400, reqLevel:11,
+    gravity:1250, flap:-430, maxFall:560, speed:1.05, hitScale:0.70, coinMult:1.50,
+    ability:'phase', charges:2,
+    abilityText:'PHASE x2 - slips through two pipes a run. Barely there at the best of times.',
+    pal:{body:'#c9a7ff', belly:'#f0e6ff', wing:'#9c74e0', beak:'#e6d8ff', eye:'#3b2a5c'},
+    deco:'wisp'
+  },
+  {
+    id:'lodestone', name:'Lodestone', cost:2900, reqLevel:12,
+    gravity:1950, flap:-530, maxFall:820, speed:1.00, hitScale:0.82, coinMult:1.70,
+    ability:'magnet', magnet:175,
+    abilityText:'GREED+ - an enormous pull. Coins leave their arcs and come to you.',
+    pal:{body:'#4a4f63', belly:'#cfd6e6', wing:'#33374a', beak:'#d9534f', eye:'#e6ecf5'},
+    deco:'lodestone'
+  },
+  {
+    id:'midas', name:'Midas Finch', cost:3400, reqLevel:13,
+    gravity:1900, flap:-515, maxFall:800, speed:1.00, hitScale:0.78, coinMult:1.20,
+    ability:'midas',
+    abilityText:'MIDAS - every coin on the course turns gold the moment you take flight.',
+    pal:{body:'#f0c020', belly:'#fff0b0', wing:'#c98a12', beak:'#fffbe0', eye:'#4a3708'},
+    deco:'crown'
+  },
+  {
+    id:'kite', name:'Paper Kite', cost:4000, reqLevel:14,
+    gravity:1500, flap:-450, maxFall:420, speed:0.95, hitScale:0.76, coinMult:1.50,
+    ability:'glide',
+    abilityText:'GLIDE+ - hold and it drifts almost flat. Falling is barely on the menu.',
+    pal:{body:'#eae2d0', belly:'#fffaf0', wing:'#cbbfa5', beak:'#e08a4a', eye:'#5b5140'},
+    deco:'kite'
+  },
+  {
+    id:'gumball', name:'Gumball', cost:4600, reqLevel:15,
+    gravity:2500, flap:-560, maxFall:1000, speed:1.00, hitScale:0.86, coinMult:1.80,
+    ability:'bounce', charges:3,
+    abilityText:'BOUNCE x3 - the floor cannot kill you three times. Pipes still can.',
+    pal:{body:'#ffd93b', belly:'#fff6c0', wing:'#f0b81e', beak:'#ff8c3a', eye:'#3d2a05'},
+    deco:'rubber'
+  },
+  {
+    id:'archivist', name:'Archivist', cost:5300, reqLevel:16,
+    gravity:1900, flap:-510, maxFall:800, speed:0.95, hitScale:0.80, coinMult:1.20,
+    ability:'scholar', xpMult:3,
+    abilityText:'SCHOLAR - triple XP from every run. Poor purse, meteoric levels.',
+    pal:{body:'#8a6f52', belly:'#e3d3b8', wing:'#63503a', beak:'#e0a63c', eye:'#241c12'},
+    deco:'specs'
+  },
+  {
+    id:'tempest', name:'Tempest', cost:6100, reqLevel:17,
+    gravity:2400, flap:-580, maxFall:1050, speed:1.62, hitScale:0.58, coinMult:2.30,
+    ability:null,
+    abilityText:'The course screams past 62% over pace, and the hitbox is a pinprick.',
+    pal:{body:'#6f8ecf', belly:'#eaf2ff', wing:'#3d5a91', beak:'#ffd45e', eye:'#1b2942'},
+    deco:'storm'
+  },
+  {
+    id:'woodpecker', name:'Woodpecker', cost:6900, reqLevel:18,
+    gravity:2200, flap:-545, maxFall:940, speed:1.05, hitScale:0.80, coinMult:1.90,
+    ability:'drill', charges:2,
+    abilityText:'DRILL x2 - smashes clean through two pipes, and scores them on the way.',
+    pal:{body:'#23252c', belly:'#f2f2f2', wing:'#15161b', beak:'#d8d8d8', eye:'#f2f2f2'},
+    deco:'pecker'
+  },
+  {
+    id:'zephyr', name:'Zephyr', cost:7700, reqLevel:20,
+    gravity:1700, flap:-490, maxFall:640, speed:0.70, hitScale:0.78, coinMult:1.60,
+    ability:'slow',
+    abilityText:'CALM - the whole world moves 30% slower around you. All the time you need.',
+    pal:{body:'#9fe0cf', belly:'#f0fffb', wing:'#6cbfaa', beak:'#ffd18a', eye:'#1f4c43'},
+    deco:'swirl'
+  },
+  {
+    id:'moth', name:'Lantern Moth', cost:8600, reqLevel:22,
+    gravity:1450, flap:-455, maxFall:560, speed:0.95, hitScale:0.74, coinMult:1.80,
+    ability:'wide', gapBonus:36,
+    abilityText:'WIDEN - the pipes part for you. Every gap opens 36px wider than anyone else gets.',
+    pal:{body:'#6d5a8c', belly:'#d8c9f0', wing:'#4b3d63', beak:'#e8d7a0', eye:'#efe4ff'},
+    deco:'lantern'
+  },
+  {
+    id:'bumble', name:'Bumblebird', cost:10000, reqLevel:25,
+    gravity:2400, flap:-520, maxFall:900, speed:0.90, hitScale:0.80, coinMult:1.40,
+    ability:'hover', extra:'phase', extraCharges:1,
+    abilityText:'HOVER - hold to hang dead still in the air, plus one PHASE through a pipe per run.',
+    pal:{body:'#f2c53d', belly:'#fff3c4', wing:'#2b2820', beak:'#3a3428', eye:'#151208'},
+    deco:'bee'
+  },
+  {
+    id:'drake', name:'Void Drake', cost:12500, reqLevel:30,
+    gravity:2000, flap:-545, maxFall:900, speed:1.25, hitScale:0.68, coinMult:2.60,
+    ability:'phase', charges:3, magnet:150, goldChance:0.25,
+    abilityText:'PHASE x3, a wide pull and the richest purse in the aviary. The last bird.',
+    pal:{body:'#241a3a', belly:'#6b4fa0', wing:'#150f24', beak:'#b06bff', eye:'#e0c8ff'},
+    deco:'horn'
+  }
+];
+const birdById = id => BIRDS.find(b => b.id === id) || BIRDS[0];
+
+// HUD naming, and which powers burn a charge (those get pips + token refills)
+const ABILITY_LABEL = {
+  armor:'ARMOR', phase:'PHASE', magnet:'GREED', glide:'GLIDE', hover:'HOVER',
+  bounce:'BOUNCE', drill:'DRILL', midas:'MIDAS', phoenix:'REBIRTH',
+  slow:'CALM', wide:'WIDEN', scholar:'SCHOLAR'
+};
+const CHARGED = new Set(['armor', 'phase', 'bounce', 'drill', 'phoenix']);
+
+// a bird can carry a second power in `extra`, with its own charge pool
+const has = (b, name) => b.ability === name || b.extra === name;
+function spend(name){
+  const b = G.bird;
+  if(b.ability === name && G.charges > 0){ G.charges--; return true; }
+  if(b.extra   === name && G.extra   > 0){ G.extra--;   return true; }
+  return false;
+}
+const armed = name => {
+  const b = G.bird;
+  return (b.ability === name && G.charges > 0) || (b.extra === name && G.extra > 0);
+};
+const TOKEN_EVERY = 30;          // pipes between ability-refill tokens
+
+// ---- saves ----
+const ACCOUNTS_KEY = 'flappyfall.accounts.v1';
+const LEGACY_KEY   = 'featherfall.save.v1';   // single-slot save from before accounts
+
+// was called Featherfall. drag those saves across, bin the old session.
+function migrateOldKeys(){
+  try{
+    if(!localStorage.getItem(ACCOUNTS_KEY)){
+      const old = localStorage.getItem('featherfall.accounts.v1');
+      if(old){
+        localStorage.setItem(ACCOUNTS_KEY, old);
+        localStorage.removeItem('featherfall.accounts.v1');
+      }
+    }
+    localStorage.removeItem('featherfall.session.v1');
+    localStorage.removeItem('flappyfall.session.v1');
+  }catch(e){}
+}
+
+const defaults = () => ({ coins:0, xp:0, best:0, owned:['sparrow'], selected:'sparrow', sound:true, dev:false });
+
+// dev account. not written to storage until someone signs in with it.
+// name is reserved so nobody can register it first.
+const DEV_USER = 'dev', DEV_PASS = 'flappydev';
+const DEV_LEVEL = 25;
+const save = defaults();          // the signed-in account's progress, live
+let accounts = {};                // key (lowercased name) -> { name, salt, algo, hash, save }
+let currentUser = null;
+
+function readAccounts(){
+  try{ const d = JSON.parse(localStorage.getItem(ACCOUNTS_KEY)); return (d && typeof d === 'object') ? d : {}; }
+  catch(e){ return {}; }
+}
+function writeAccounts(){
+  try{ localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts)); }catch(e){}
+}
+// load a save, dropping anything that looks wrong
+function applySave(d){
+  Object.assign(save, defaults());
+  if(!d || typeof d !== 'object') return;
+  save.coins = Math.max(0, d.coins|0);
+  save.xp    = Math.max(0, d.xp|0);
+  save.best  = Math.max(0, d.best|0);
+  save.sound = d.sound !== false;
+  save.owned = Array.isArray(d.owned) && d.owned.length ? d.owned.filter(id => BIRDS.some(b => b.id === id)) : ['sparrow'];
+  if(!save.owned.includes('sparrow')) save.owned.push('sparrow');
+  save.selected = save.owned.includes(d.selected) ? d.selected : 'sparrow';
+  save.dev   = !!d.dev;
+}
+function persist(){
+  if(!currentUser || !accounts[currentUser]) return;
+  accounts[currentUser].save = {
+    coins:save.coins, xp:save.xp, best:save.best,
+    owned:save.owned.slice(), selected:save.selected, sound:save.sound, dev:save.dev
+  };
+  writeAccounts();
+}
+
+// passwords. salted + hashed so they're not sitting in localStorage as text.
+// it's a save slot, not real auth - anyone can read this file.
+function weakHash(str){
+  let a = 5381, b = 52711;
+  for(let i = 0; i < str.length; i++){
+    a = ((a << 5) + a + str.charCodeAt(i)) >>> 0;
+    b = ((b << 5) + b ^ str.charCodeAt(str.length - 1 - i)) >>> 0;
+  }
+  return a.toString(16).padStart(8,'0') + b.toString(16).padStart(8,'0');
+}
+async function digestPw(pw, salt, algo){
+  const msg = salt + '::' + pw;
+  if(algo !== 'weak' && window.crypto && crypto.subtle){
+    try{
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
+      return { algo:'sha256', hash:[...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('') };
+    }catch(e){ /* insecure context - fall through */ }
+  }
+  return { algo:'weak', hash:weakHash(msg) };
+}
+function makeSalt(){
+  try{
+    const a = new Uint8Array(12); crypto.getRandomValues(a);
+    return [...a].map(b => b.toString(16).padStart(2,'0')).join('');
+  }catch(e){ return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+}
+
+// each level costs a bit more than the last
+const xpForLevel = l => 50 + (l - 1) * 40;
+const xpTotalForLevel = target => { let t = 0; for(let l = 1; l < target; l++) t += xpForLevel(l); return t; };
+function levelInfo(totalXp){
+  let lvl = 1, left = totalXp, need = xpForLevel(1);
+  while(left >= need && lvl < 99){ left -= need; lvl++; need = xpForLevel(lvl); }
+  return { level:lvl, into:left, need, pct: Math.min(100, left / need * 100) };
+}
+// levels keep paying out, small permanent coin bonus
+const levelCoinMult = lvl => 1 + 0.03 * (lvl - 1);
+
+// little beep machine. no audio files.
+const Sfx = (() => {
+  let ac = null;
+  function ctxOf(){
+    if(!ac){ try{ ac = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; } }
+    if(ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function tone(freq, dur, type='square', vol=0.06, slideTo=null){
+    if(!save.sound) return;
+    const a = ctxOf(); if(!a) return;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, a.currentTime);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, a.currentTime + dur);
+    g.gain.setValueAtTime(vol, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+    o.connect(g).connect(a.destination);
+    o.start(); o.stop(a.currentTime + dur + 0.02);
+  }
+  return {
+    unlock(){ ctxOf(); },
+    flap(){ tone(420, 0.09, 'square', 0.05, 620); },
+    coin(){ tone(880, 0.07, 'triangle', 0.07, 1320); },
+    gold(){ tone(1046, 0.10, 'triangle', 0.09, 1760); setTimeout(()=>tone(1568,0.12,'triangle',0.07),70); },
+    point(){ tone(660, 0.08, 'sine', 0.05, 880); },
+    hit(){ tone(180, 0.18, 'sawtooth', 0.09, 70); },
+    die(){ tone(240, 0.5, 'sawtooth', 0.07, 55); },
+    armor(){ tone(300, 0.16, 'square', 0.1, 520); setTimeout(()=>tone(760,0.16,'square',0.07),90); },
+    phase(){ tone(1200, 0.28, 'sine', 0.06, 380); },
+    buy(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,0.14,'triangle',0.07), i*80)); },
+    levelUp(){ [659,784,988,1319].forEach((f,i)=>setTimeout(()=>tone(f,0.2,'sine',0.08), i*95)); }
+  };
+})();
+
+// birds are drawn, not loaded. centred on 0,0 in roughly a 44px box.
+// caller sets up the transform.
+function drawBirdArt(c, bird, wingPhase, opts){
+  opts = opts || {};
+  const p = bird.pal;
+  const R = 17;                       // body radius
+  const wing = Math.sin(wingPhase);   // -1 .. 1
+
+  c.save();
+  if(opts.alpha != null) c.globalAlpha = opts.alpha;
+
+  // fire trail
+  if(bird.deco === 'flame'){
+    c.save();
+    c.globalAlpha = (opts.alpha != null ? opts.alpha : 1) * 0.9;
+    for(let i = 0; i < 4; i++){
+      const t = wingPhase * 1.3 + i, h = 9 + Math.sin(t) * 5, x0 = -R * 0.6 - i * 5;
+      c.beginPath();
+      c.moveTo(x0, -1 + i);
+      c.quadraticCurveTo(x0 - 8, -h, x0 - 15, -1 + i);
+      c.quadraticCurveTo(x0 - 8, h * 0.5, x0, -1 + i);
+      c.closePath();
+      c.fillStyle = i % 2 ? '#ffca3a' : '#ff6b2c';
+      c.fill();
+    }
+    c.restore();
+  }
+
+  // ghost trail
+  if(bird.deco === 'wisp'){
+    c.globalAlpha = (opts.alpha != null ? opts.alpha : 1) * 0.28;
+    for(let i=1;i<=3;i++){
+      c.beginPath();
+      c.ellipse(-i*9, Math.sin(wingPhase - i*0.6)*2, R*(1-i*0.16), R*0.8*(1-i*0.16), 0, 0, Math.PI*2);
+      c.fillStyle = p.body; c.fill();
+    }
+    c.globalAlpha = opts.alpha != null ? opts.alpha : 1;
+  }
+
+  // tail
+  c.beginPath();
+  c.moveTo(-R*0.75, -2);
+  c.lineTo(-R*1.75, -8 + wing*2);
+  c.lineTo(-R*1.65, 4 + wing*2);
+  c.closePath();
+  c.fillStyle = p.wing; c.fill();
+
+  // body
+  c.beginPath();
+  c.ellipse(0, 0, R, R*0.86, 0, 0, Math.PI*2);
+  c.fillStyle = p.body; c.fill();
+
+  // belly
+  c.beginPath();
+  c.ellipse(1, R*0.28, R*0.72, R*0.5, 0, 0, Math.PI*2);
+  c.fillStyle = p.belly; c.fill();
+
+  // far wing
+  c.save();
+  c.translate(-2, -1); c.rotate(wing * 0.55 - 0.15);
+  c.beginPath(); c.ellipse(-3, 6, R*0.72, R*0.42, 0.2, 0, Math.PI*2);
+  c.fillStyle = p.wing; c.globalAlpha *= 0.75; c.fill();
+  c.restore();
+
+  // near wing
+  c.save();
+  c.translate(-1, 1); c.rotate(wing * 0.85);
+  c.beginPath();
+  if(bird.deco === 'falcon'){                 // long, swept, raptor wing
+    c.moveTo(-2,-2); c.quadraticCurveTo(-16, 4, -20, 14);
+    c.quadraticCurveTo(-4, 12, 8, 3); c.closePath();
+  } else if(bird.deco === 'owl'){             // broad soft wing
+    c.ellipse(-4, 5, R*0.85, R*0.6, 0.15, 0, Math.PI*2);
+  } else {
+    c.ellipse(-3, 4, R*0.78, R*0.46, 0.15, 0, Math.PI*2);
+  }
+  c.fillStyle = p.wing; c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = 1; c.stroke();
+  c.restore();
+
+  // head extras
+  if(bird.deco === 'magpie'){                  // white shoulder flash
+    c.beginPath(); c.ellipse(4, 2, R*0.42, R*0.3, -0.4, 0, Math.PI*2);
+    c.fillStyle = p.belly; c.fill();
+  }
+  if(bird.deco === 'owl'){                     // ear tufts + face disc
+    c.beginPath();
+    c.moveTo(-4,-R*0.75); c.lineTo(-9,-R*1.5); c.lineTo(-1,-R*0.95); c.closePath();
+    c.moveTo(9,-R*0.7);  c.lineTo(11,-R*1.45); c.lineTo(14,-R*0.6); c.closePath();
+    c.fillStyle = p.wing; c.fill();
+    c.beginPath(); c.ellipse(6, -2, R*0.6, R*0.55, 0, 0, Math.PI*2);
+    c.fillStyle = p.belly; c.fill();
+  }
+
+  // markings, before the eye goes on
+  switch(bird.deco){
+    case 'crest':                                  // jay crest
+      c.beginPath();
+      c.moveTo(2, -R*0.8); c.quadraticCurveTo(-2, -R*1.8, -10, -R*1.65);
+      c.quadraticCurveTo(-4, -R*1.1, -2, -R*0.75); c.closePath();
+      c.fillStyle = p.wing; c.fill(); break;
+    case 'bee':                                    // bumble stripes
+      c.save();
+      c.beginPath(); c.ellipse(0, 0, R, R*0.86, 0, 0, Math.PI*2); c.clip();
+      c.fillStyle = p.wing;
+      for(let i = -2; i < 3; i++) c.fillRect(-5 + i*9, -R, 5, R*2);
+      c.restore(); break;
+    case 'stone':                                  // pitted rock
+      c.fillStyle = 'rgba(0,0,0,.15)';
+      [[-6,-4,3.2],[3,5,2.4],[9,-8,2],[-2,8,2.6],[10,3,1.7]].forEach(s => {
+        c.beginPath(); c.arc(s[0], s[1], s[2], 0, Math.PI*2); c.fill();
+      });
+      break;
+    case 'lodestone':                              // horseshoe magnet
+      c.save(); c.translate(-5, -R*1.05); c.rotate(-0.2);
+      c.lineWidth = 4; c.lineCap = 'butt';
+      c.strokeStyle = '#d9534f'; c.beginPath(); c.arc(0, 0, 6, Math.PI, 0); c.stroke();
+      c.strokeStyle = '#5b9bd5'; c.beginPath();
+      c.moveTo(-6, 0); c.lineTo(-6, 4); c.moveTo(6, 0); c.lineTo(6, 4); c.stroke();
+      c.restore(); break;
+    case 'rubber':                                 // glossy highlight
+      c.beginPath(); c.ellipse(-3, -7, 5, 3.4, -0.5, 0, Math.PI*2);
+      c.fillStyle = 'rgba(255,255,255,.75)'; c.fill(); break;
+    case 'storm':                                  // lightning flash
+      c.beginPath();
+      c.moveTo(-1,-4); c.lineTo(-8,3); c.lineTo(-4,3); c.lineTo(-9,11);
+      c.lineTo(2,1); c.lineTo(-3,1); c.closePath();
+      c.fillStyle = '#ffd45e'; c.fill(); break;
+    case 'swirl':                                  // calm eddy
+      c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.6;
+      c.beginPath(); c.arc(-1, 2, 7, 0.4, 4.2); c.stroke(); break;
+    case 'kite':                                   // ribbon streamers
+      c.strokeStyle = p.wing; c.lineWidth = 2; c.beginPath();
+      for(let i = 0; i < 3; i++){
+        const y = -6 + i*6;
+        c.moveTo(-R*1.5, y);
+        c.quadraticCurveTo(-R*2.2, y + Math.sin(wingPhase + i)*5, -R*2.9, y);
+      }
+      c.stroke(); break;
+    case 'pecker':                                 // scarlet crest
+      c.beginPath();
+      c.moveTo(3, -R*0.82); c.quadraticCurveTo(-1, -R*1.7, -8, -R*1.5);
+      c.quadraticCurveTo(-2, -R*1.05, 0, -R*0.78); c.closePath();
+      c.fillStyle = '#d63f16'; c.fill(); break;
+  }
+
+  // eye
+  const ex = 7, ey = -5;
+  c.beginPath(); c.arc(ex, ey, bird.deco==='owl' ? 5.5 : 4.6, 0, Math.PI*2);
+  c.fillStyle = '#fff'; c.fill();
+  c.beginPath(); c.arc(ex + 1.4, ey + 0.3, bird.deco==='owl' ? 2.8 : 2.4, 0, Math.PI*2);
+  c.fillStyle = p.eye; c.fill();
+
+  // beak
+  c.beginPath();
+  if(bird.deco === 'falcon'){                  // hooked
+    c.moveTo(R*0.82, -3); c.quadraticCurveTo(R*1.5, -1, R*1.25, 5); c.lineTo(R*0.8, 3);
+  } else if(bird.deco === 'pecker'){           // long chisel
+    c.moveTo(R*0.85, -2.5); c.lineTo(R*2.05, 0.5); c.lineTo(R*0.85, 3.5);
+  } else if(bird.deco === 'rubber'){           // wide bill
+    c.moveTo(R*0.7, -3.5); c.quadraticCurveTo(R*2, 0.5, R*0.7, 4.5);
+  } else if(bird.deco === 'horn'){             // drake snout
+    c.moveTo(R*0.8, -4); c.lineTo(R*1.7, -0.5); c.lineTo(R*1.5, 4); c.lineTo(R*0.8, 4);
+  } else {
+    c.moveTo(R*0.85, -3); c.lineTo(R*1.55, 0.5); c.lineTo(R*0.85, 4);
+  }
+  c.closePath(); c.fillStyle = p.beak; c.fill();
+
+  // knight helm
+  if(bird.deco === 'helm'){
+    c.beginPath();
+    c.arc(2, -3, R*0.92, Math.PI*1.06, Math.PI*2.06);
+    c.lineTo(R*0.85, -3); c.lineTo(-R*0.8, -3); c.closePath();
+    c.fillStyle = '#d9dde6'; c.fill();
+    c.strokeStyle = '#6b7385'; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = '#3a4152';                       // visor slit
+    c.fillRect(1, -8, R*0.9, 3.2);
+    c.beginPath();                                 // plume
+    c.moveTo(-1,-R*0.95);
+    c.quadraticCurveTo(-6,-R*1.9, -13,-R*1.55);
+    c.quadraticCurveTo(-7,-R*1.3, -5,-R*0.95);
+    c.closePath(); c.fillStyle = '#d94f6a'; c.fill();
+  }
+
+  // hats, horns, lanterns. drawn last so they sit on top.
+  switch(bird.deco){
+    case 'crown':
+      c.beginPath();
+      c.moveTo(-3, -R*0.84); c.lineTo(-5, -R*1.6); c.lineTo(0, -R*1.16);
+      c.lineTo(5, -R*1.75); c.lineTo(9, -R*1.14); c.lineTo(13, -R*1.55); c.lineTo(12, -R*0.68);
+      c.closePath();
+      c.fillStyle = '#ffd76a'; c.fill();
+      c.strokeStyle = '#a8720e'; c.lineWidth = 1; c.stroke(); break;
+    case 'specs':
+      c.strokeStyle = '#2b2620'; c.lineWidth = 1.7;
+      c.beginPath();
+      c.arc(7.5, -5, 6, 0, Math.PI*2);
+      c.moveTo(1.5, -5.5); c.lineTo(-2.5, -7);
+      c.stroke(); break;
+    case 'horn':
+      c.beginPath();
+      c.moveTo(2, -R*0.82); c.quadraticCurveTo(5, -R*1.95, 14, -R*1.9);
+      c.quadraticCurveTo(7, -R*1.25, 8, -R*0.72); c.closePath();
+      c.fillStyle = p.beak; c.fill(); break;
+    case 'lantern': {
+      const gy = R*1.3;
+      c.strokeStyle = p.wing; c.lineWidth = 1.3;
+      c.beginPath(); c.moveTo(-2, R*0.62); c.lineTo(-2, gy - 5); c.stroke();
+      c.save();
+      c.shadowColor = '#ffe08a'; c.shadowBlur = 14;
+      c.fillStyle = '#ffe08a';
+      c.beginPath(); c.arc(-2, gy, 5.2 + Math.sin(wingPhase)*0.5, 0, Math.PI*2); c.fill();
+      c.restore(); break;
+    }
+    case 'flame':                                  // crown of fire
+      c.beginPath();
+      c.moveTo(-1, -R*0.9);
+      c.quadraticCurveTo(-6, -R*1.7 - Math.sin(wingPhase)*3, 1, -R*1.85);
+      c.quadraticCurveTo(4, -R*1.3, 6, -R*0.85);
+      c.closePath();
+      c.fillStyle = '#ffca3a'; c.fill(); break;
+  }
+
+  // shielded / phasing ring
+  if(opts.ring){
+    c.beginPath(); c.arc(0, 0, R*1.5, 0, Math.PI*2);
+    c.strokeStyle = opts.ring; c.lineWidth = 2.5;
+    c.globalAlpha = (opts.ringAlpha != null ? opts.ringAlpha : 0.8);
+    c.stroke();
+  }
+  c.restore();
+}
+
+// ---- canvas ----
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+function fitCanvas(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cvs.width = W * dpr; cvs.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+fitCanvas();
+addEventListener('resize', fitCanvas);
+
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const rand = (a,b) => a + Math.random() * (b - a);
+
+// numbers I landed on by playing it. don't read too much into them.
+// TODO: gap gets mean past ~40, might ease the curve
+const PIPE_W = 78, PIPE_SPACING = 238, BASE_SPEED = 196;
+const gapFor   = score => clamp(206 - score * 1.7, 140, 206);
+const speedFor = score => BASE_SPEED + Math.min(score * 2.1, 74);
+
+// everything about the current run lives in G
+const G = {
+  state:'menu',            // login | menu | shop | ready | play | paused | falling | dead
+  prevState:'play',        // what to return to when unpausing
+  bird:BIRDS[0],
+  t:0, scroll:0, y:SKY_H*0.42, vy:0, rot:0, wing:0,
+  pipes:[], coins:[], parts:[],
+  distToPipe:0, score:0, runCoins:0, coinCount:0,
+  charges:0, maxCharges:0, extra:0, maxExtra:0, shield:0, pendingToken:false,
+  god:false, phaseT:0, invT:0, shake:0, flashT:0,
+  held:false, gliding:false, deadTimer:0, hitPipe:null
+};
+
+// background bits, same ones on the menu and in game
+const stars  = Array.from({length:46}, () => ({ x:rand(0,W), y:rand(0,SKY_H*0.62), r:rand(0.6,1.7), p:rand(0,6.3) }));
+const clouds = Array.from({length:6},  () => ({ x:rand(0,W), y:rand(50,SKY_H*0.55), s:rand(0.55,1.25), sp:rand(0.05,0.14) }));
+
+// ---- a run ----
+function startRun(){
+  const b = birdById(save.selected);
+  G.bird = b;
+  G.state = 'ready';
+  G.y = SKY_H * 0.42; G.vy = 0; G.rot = 0;
+  G.pipes.length = 0; G.coins.length = 0; G.parts.length = 0;
+  G.distToPipe = 300;
+  G.score = 0; G.runCoins = 0; G.coinCount = 0;
+  const mult = save.dev ? 3 : 1;                          // dev: triple charges
+  G.maxCharges = (b.charges || 0) * mult;
+  G.charges = G.maxCharges;
+  G.maxExtra = (b.extraCharges || 0) * mult;
+  G.extra = G.maxExtra;
+  G.shield = 0; G.pendingToken = false;
+  G.god = false;
+  G.phaseT = 0; G.invT = 0; G.shake = 0; G.flashT = 0;
+  G.deadTimer = 0; G.hitPipe = null; G.gliding = false;
+  hideAll();
+  $('hud').classList.remove('hidden');
+  $('hudHint').classList.remove('hidden');
+  $('hudHint').textContent = b.ability === 'glide' ? 'TAP TO FLAP  Â·  HOLD TO GLIDE' : 'TAP TO FLAP';
+  syncHud();
+}
+
+function flap(){
+  if(G.state === 'ready'){ G.state = 'play'; $('hudHint').classList.add('hidden'); }
+  if(G.state !== 'play') return;
+  G.vy = G.bird.flap;
+  G.rot = -0.5;
+  Sfx.flap();
+  for(let i=0;i<4;i++) puff(BIRD_X - 12, G.y + 8, '#ffffff');
+}
+
+function spawnPipe(){
+  const b = G.bird;
+  const gapH = Math.min(260, gapFor(G.score) + (b.gapBonus || 0));
+  const gapY = rand(96, SKY_H - 96 - gapH);
+  const pipe = { x: W + 40, gapY, gapH, passed:false, phased:false, smashed:false };
+  G.pipes.push(pipe);
+
+  // token rides the gap after every 30th pipe
+  if(G.pendingToken){
+    G.pendingToken = false;
+    G.coins.push(makeToken(pipe.x + PIPE_W/2, gapY + gapH/2));
+    return;                                   // the token has the gap to itself
+  }
+
+  // coins sit in the gap. sometimes shoved up near a lip so they cost you something.
+  const cx = pipe.x + PIPE_W / 2;
+  const cy = gapY + gapH / 2;
+  const n  = Math.random() < 0.32 ? 3 : Math.random() < 0.72 ? 2 : 1;
+  const risky = Math.random() < 0.3;
+  const bias = risky ? (Math.random() < 0.5 ? -1 : 1) * (gapH / 2 - 26) : 0;
+  for(let i = 0; i < n; i++){
+    const y = clamp(cy + bias + (i - (n-1)/2) * 32, 40, SKY_H - 40);
+    G.coins.push(makeCoin(cx, y, risky && i === 0));
+  }
+  // stray coin between pipes
+  if(Math.random() < 0.45){
+    G.coins.push(makeCoin(cx + PIPE_SPACING/2, rand(90, SKY_H - 110), Math.random() < 0.12 + (b.goldChance || 0)));
+  }
+}
+function makeCoin(x, y, gold){
+  if(G.bird && G.bird.ability === 'midas') gold = true;      // MIDAS: the lot turns gold
+  return { x, y, r:11, gold:!!gold, val: gold ? 5 : 1, taken:false, p:rand(0,6.3) };
+}
+const makeToken = (x, y) => ({ x, y, r:15, tok:true, gold:false, val:0, taken:false, p:rand(0,6.3) });
+
+// ---- particles ----
+function part(o){ if(G.parts.length < 220) G.parts.push(o); }
+function puff(x, y, color){
+  part({ x, y, vx:rand(-70,-20), vy:rand(-30,30), life:0.4, max:0.4, size:rand(2,4), color, kind:'dot' });
+}
+function burst(x, y, color, n, spd){
+  for(let i=0;i<n;i++){
+    const a = rand(0, Math.PI*2), s = rand(spd*0.3, spd);
+    part({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life:rand(0.4,0.85), max:0.85, size:rand(2,4.5), color, kind:'dot' });
+  }
+}
+function floatText(x, y, text, color){
+  part({ x, y, vx:0, vy:-46, life:0.9, max:0.9, text, color, kind:'text' });
+}
+
+// ---- physics ----
+function step(dt){
+  if(G.state === 'paused') return;      // world frozen, render keeps drawing it
+  G.t += dt;
+  const b = G.bird;
+
+  // idle background drift on the menus
+  if(G.state === 'login' || G.state === 'menu' || G.state === 'shop'){
+    G.scroll += 60 * dt;
+    G.wing += dt * 7;
+    G.y = SKY_H * 0.42 + Math.sin(G.t * 2.2) * 10;
+    G.rot = Math.sin(G.t * 2.2) * 0.12;
+    stepClouds(dt, 1);
+    return;
+  }
+
+  const speed = speedFor(G.score) * b.speed;
+  G.wing += dt * (G.vy < 0 ? 22 : 11);
+
+  if(G.state === 'ready'){
+    G.y = SKY_H * 0.42 + Math.sin(G.t * 3) * 9;
+    G.rot = Math.sin(G.t * 3) * 0.1;
+    G.scroll += speed * dt;
+    stepClouds(dt, b.speed);
+    stepParts(dt);
+    return;
+  }
+
+  const moving = G.state === 'play';
+
+  // bird
+  let g = b.gravity;
+  G.gliding = false;
+  if(b.ability === 'glide' && G.held && G.vy > 0 && G.state === 'play'){
+    G.gliding = true;
+    g *= b.id === 'kite' ? 0.10 : 0.22;
+    G.vy = Math.min(G.vy, b.id === 'kite' ? 95 : 165);
+    if(Math.random() < 0.35) puff(BIRD_X - 6, G.y + 12, '#ffe9b0');
+  }
+  if(b.ability === 'hover' && G.held && G.state === 'play'){
+    G.gliding = true;
+    g = 0;
+    G.vy += (0 - G.vy) * Math.min(1, dt * 9);        // settle to a dead stop
+    if(Math.random() < 0.5) puff(BIRD_X - 4, G.y + 10, '#fff3c4');
+  }
+  G.vy = Math.min(G.vy + g * dt, b.maxFall);
+  G.y += G.vy * dt;
+
+  // nose follows velocity
+  const target = clamp(G.vy / 620, -0.55, 1.45);
+  G.rot += (target - G.rot) * Math.min(1, dt * 9);
+
+  // bonk off the ceiling, don't die there
+  const hitR = 17 * b.hitScale;
+  if(G.y < hitR + 2){ G.y = hitR + 2; G.vy = Math.max(G.vy, 40); }
+
+  // timers
+  if(G.phaseT > 0) G.phaseT -= dt;
+  if(G.invT   > 0) G.invT   -= dt;
+  if(G.shake  > 0) G.shake  = Math.max(0, G.shake - dt * 26);
+  if(G.flashT > 0) G.flashT -= dt;
+
+  if(moving){
+    G.scroll += speed * dt;
+    stepClouds(dt, b.speed);
+
+    // pipes
+    G.distToPipe -= speed * dt;
+    if(G.distToPipe <= 0){ spawnPipe(); G.distToPipe += PIPE_SPACING; }
+
+    for(const p of G.pipes){
+      p.x -= speed * dt;
+      if(!p.passed && p.x + PIPE_W < BIRD_X){
+        p.passed = true;
+        G.score++;
+        Sfx.point();
+        if(G.score > 0 && G.score % 10 === 0) floatText(BIRD_X + 40, G.y - 26, G.score + '!', '#ffffff');
+        if(G.score % TOKEN_EVERY === 0){          // queue an ability token
+          G.pendingToken = true;
+          floatText(BIRD_X + 30, G.y - 48, 'TOKEN AHEAD', '#8ef0d0');
+        }
+      }
+    }
+    while(G.pipes.length && G.pipes[0].x < -PIPE_W - 10) G.pipes.shift();
+
+    // coins
+    const mag = b.magnet || 0;                 // a stat, so any bird may carry one
+    for(const c of G.coins){
+      c.x -= speed * dt;
+      c.p += dt * 4;
+      if(mag && !c.taken){
+        const dx = BIRD_X - c.x, dy = G.y - c.y, d = Math.hypot(dx, dy);
+        if(d < mag && d > 1){
+          const pull = (1 - d / mag) * 460 * dt;
+          c.x += dx / d * pull; c.y += dy / d * pull;
+        }
+      }
+      if(!c.taken && Math.hypot(BIRD_X - c.x, G.y - c.y) < c.r + 15){
+        c.taken = true;
+        collect(c);
+      }
+    }
+    while(G.coins.length && G.coins[0].x < -40) G.coins.shift();
+
+    // hit anything?
+    checkCollisions();
+  }
+
+  stepParts(dt);
+
+  // floor
+  if(G.y + hitR >= SKY_H){
+    if(G.god && G.state === 'play'){                       // dev: bounce off the floor
+      G.y = SKY_H - hitR - 1; G.vy = -430;
+    } else if(G.state === 'play' && armed('bounce') && spend('bounce')){
+      G.y = SKY_H - hitR - 1; G.vy = -700;
+      G.shake = 8;
+      Sfx.armor();
+      burst(BIRD_X, SKY_H - 4, b.pal.body, 16, 260);
+      floatText(BIRD_X, G.y - 30, 'BOING!', b.pal.body);
+      syncHud();
+    } else if(G.state === 'play' && G.invT <= 0 && G.shield > 0){
+      G.shield = 0; consumeArmor();
+      G.y = SKY_H - hitR - 1; G.vy = -430;
+    } else if(G.state === 'play' && G.invT <= 0 && armed('armor') && spend('armor')){
+      consumeArmor();
+      G.y = SKY_H - hitR - 1; G.vy = -430;
+    } else {
+      G.y = SKY_H - hitR;
+      if(G.state !== 'dead'){
+        G.vy = 0;
+        if(G.state === 'play') die();
+        G.state = 'dead';
+        G.deadTimer = 0.42;
+        G.shake = Math.max(G.shake, 7);
+        burst(BIRD_X, G.y, '#c9a227', 12, 200);
+      }
+    }
+  }
+
+  if(G.state === 'dead'){
+    G.deadTimer -= dt;
+    if(G.deadTimer <= 0 && $('over').classList.contains('hidden')) endRun();
+  }
+}
+
+function stepClouds(dt, mult){
+  for(const c of clouds){
+    c.x -= (14 + c.sp * 60) * c.s * mult * dt;
+    if(c.x < -90){ c.x = W + rand(20, 120); c.y = rand(50, SKY_H * 0.55); c.s = rand(0.55,1.25); }
+  }
+}
+function stepParts(dt){
+  for(let i = G.parts.length - 1; i >= 0; i--){
+    const p = G.parts[i];
+    p.life -= dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if(p.kind === 'dot') p.vy += 240 * dt;
+    if(p.life <= 0) G.parts.splice(i, 1);
+  }
+}
+
+function collect(c){
+  if(c.tok){ collectToken(c); return; }
+  const gain = c.val * G.bird.coinMult * levelCoinMult(levelInfo(save.xp).level) * (save.dev ? 3 : 1);
+  G.runCoins += gain;
+  G.coinCount += c.val;
+  burst(c.x, c.y, c.gold ? '#fff0a8' : '#ffc73f', c.gold ? 12 : 6, c.gold ? 190 : 130);
+  if(c.gold){ Sfx.gold(); floatText(c.x, c.y - 10, '+' + Math.round(gain), '#fff0a8'); }
+  else Sfx.coin();
+  syncHud();
+}
+
+/* Ability token: tops a charged power back up. Birds whose power isn't
+   spendable (glide, greed, midas...) get a one-off shield instead, so the
+   token is never a dud. */
+function collectToken(c){
+  burst(c.x, c.y, '#8ef0d0', 22, 240);
+  G.flashT = 0.14;
+  Sfx.armor();
+  const primary = CHARGED.has(G.bird.ability) && G.maxCharges > 0;
+  const second  = G.maxExtra > 0;
+  if(primary || second){
+    if(primary) G.charges = G.maxCharges;
+    if(second)  G.extra   = G.maxExtra;
+    const label = primary ? ABILITY_LABEL[G.bird.ability] : ABILITY_LABEL[G.bird.extra];
+    floatText(c.x, c.y - 14, label + ' RESTORED', '#8ef0d0');
+  } else {
+    G.shield = 1;
+    floatText(c.x, c.y - 14, 'SHIELDED', '#8ef0d0');
+  }
+  syncHud();
+}
+
+function checkCollisions(){
+  const b = G.bird, hitR = 17 * b.hitScale;
+  if(G.invT > 0 || G.god) return;
+
+  for(const p of G.pipes){
+    if(p.smashed) continue;
+    if(p.x > BIRD_X + hitR || p.x + PIPE_W < BIRD_X - hitR) continue;
+    const top = { x:p.x, y:0, w:PIPE_W, h:p.gapY };
+    const bot = { x:p.x, y:p.gapY + p.gapH, w:PIPE_W, h:SKY_H - (p.gapY + p.gapH) };
+    if(circleRect(BIRD_X, G.y, hitR, top) || circleRect(BIRD_X, G.y, hitR, bot)){
+      if(G.phaseT > 0) return;                              // already ghosting through
+      if(armed('phase') && !p.phased && spend('phase')){
+        p.phased = true;
+        G.phaseT = 1.15; G.invT = 1.15;
+        Sfx.phase();
+        burst(BIRD_X, G.y, '#a9d8ff', 18, 210);
+        floatText(BIRD_X, G.y - 30, 'PHASE', '#a9d8ff');
+        syncHud();
+        return;
+      }
+      if(armed('drill') && spend('drill')){
+        p.smashed = true;
+        if(!p.passed){ p.passed = true; G.score++; }   // you went through it, after all
+        G.invT = 0.5; G.shake = 12; G.flashT = 0.12;
+        Sfx.armor();
+        burst(BIRD_X + 20, G.y, '#69cf7f', 26, 300);
+        burst(BIRD_X + 20, p.gapY, '#2f7a44', 14, 240);
+        floatText(BIRD_X, G.y - 32, 'SMASH!', '#69cf7f');
+        syncHud();
+        return;
+      }
+      if(armed('armor') && spend('armor')){ consumeArmor(); G.vy = -380; return; }
+      if(G.shield > 0){ G.shield = 0; consumeArmor(); G.vy = -380; return; }
+      G.hitPipe = p;
+      die();
+      return;
+    }
+  }
+}
+function circleRect(cx, cy, r, R){
+  const nx = clamp(cx, R.x, R.x + R.w), ny = clamp(cy, R.y, R.y + R.h);
+  const dx = cx - nx, dy = cy - ny;
+  return dx*dx + dy*dy < r*r;
+}
+// caller spends the charge. a token shield can pay for this instead of a pip.
+function consumeArmor(){
+  G.invT = 1.0; G.shake = 10; G.flashT = 0.18;
+  Sfx.armor();
+  burst(BIRD_X, G.y, '#d9dde6', 20, 250);
+  floatText(BIRD_X, G.y - 34, 'CLANG!', '#d9dde6');
+  syncHud();
+}
+
+function die(){
+  if(G.state !== 'play') return;
+  // rebirth: burn a charge, come back mid-screen instead of dropping
+  if(armed('phoenix') && spend('phoenix')){
+    G.y = SKY_H * 0.4; G.vy = -260;
+    G.invT = 1.8; G.flashT = 0.3; G.shake = 14;
+    Sfx.levelUp();
+    burst(BIRD_X, G.y, '#ff6b2c', 30, 320);
+    burst(BIRD_X, G.y, '#ffca3a', 20, 220);
+    floatText(BIRD_X, G.y - 40, 'REBIRTH', '#ffca3a');
+    syncHud();
+    return;
+  }
+  G.state = 'falling';
+  G.vy = Math.min(G.vy, -180);
+  G.shake = 12;
+  Sfx.hit(); Sfx.die();
+  burst(BIRD_X, G.y, G.bird.pal.body, 16, 230);
+  $('hudHint').classList.add('hidden');
+}
+
+// run over. bank the coins, hand out xp.
+function endRun(){
+  const earned = Math.floor(G.runCoins);
+  const xpGain = Math.round((G.score * 3 + G.coinCount) * (G.bird.xpMult || 1));
+  const before = levelInfo(save.xp).level;
+
+  save.coins += earned;
+  save.xp    += xpGain;
+  const isBest = G.score > save.best;
+  if(isBest) save.best = G.score;
+  persist();
+  if(isBest) submitScore();          // a new record goes to the world board
+
+  const after = levelInfo(save.xp);
+  $('oScore').textContent = G.score;
+  $('oBest').textContent  = save.best;
+  $('oCoins').textContent = '+' + earned;
+  $('oXp').textContent    = '+' + xpGain;
+  $('oNewBest').classList.toggle('hidden', !isBest);
+  $('oTitle').textContent = isBest ? 'NEW RECORD' : 'DOWNED';
+  $('oFlavor').textContent = flavor(G.score);
+  $('oLvl').textContent   = 'LEVEL ' + after.level;
+  $('oXpTxt').textContent = after.into + ' / ' + after.need + ' XP';
+  $('oXpBar').style.width = after.pct + '%';
+
+  $('hud').classList.add('hidden');
+  $('over').classList.remove('hidden');
+
+  if(after.level > before){
+    setTimeout(() => { Sfx.levelUp(); toast('LEVEL ' + after.level + ' â€” new birds may be available'); }, 380);
+  }
+}
+function flavor(s){
+  if(s === 0)  return 'Straight into the first pipe. Bold.';
+  if(s < 5)    return 'The pipes claim another.';
+  if(s < 12)   return 'Respectable flapping.';
+  if(s < 25)   return 'The aviary is taking notice.';
+  if(s < 40)   return 'Feathered veteran.';
+  return 'Legend of the pipe corridor.';
+}
+
+// ---- drawing ----
+function render(){
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  if(G.shake > 0.1) ctx.translate(rand(-G.shake, G.shake) * 0.5, rand(-G.shake, G.shake) * 0.5);
+
+  drawSky();
+  drawHills();
+  drawClouds();
+  drawPipes();
+  drawCoins();
+  drawParts();
+  drawBird();
+  drawGround();
+
+  ctx.restore();
+
+  if(G.flashT > 0){
+    ctx.fillStyle = 'rgba(255,255,255,' + (G.flashT / 0.18 * 0.5) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+  if(G.phaseT > 0){
+    ctx.fillStyle = 'rgba(120,190,255,' + (Math.min(1, G.phaseT) * 0.1) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// flat daylight. one sky colour, paler band at the horizon, sun is a circle.
+function drawSky(){
+  ctx.fillStyle = '#4ec0ca';
+  ctx.fillRect(0, 0, W, SKY_H);
+  ctx.fillStyle = '#6fcfd6';
+  ctx.fillRect(0, SKY_H - 150, W, 150);
+
+  ctx.fillStyle = '#fdf3c0';
+  ctx.beginPath(); ctx.arc(58, 74, 26, 0, Math.PI*2); ctx.fill();
+}
+
+// skyline and bushes. flat blocks, nothing clever.
+function drawHills(){
+  const skylineY = SKY_H - 78;
+  ctx.fillStyle = '#8fd7c4';
+  const bw = 46, shift = -(G.scroll * 0.16) % (bw * 2);
+  for(let x = shift - bw*2; x < W + bw*2; x += bw){
+    const h = 34 + ((Math.floor((x - shift) / bw) % 3) * 16);
+    ctx.fillRect(x, skylineY - h, bw - 6, h + 40);
+    ctx.fillStyle = '#7ec8b4';
+    ctx.fillRect(x, skylineY - h, bw - 6, 5);
+    ctx.fillStyle = '#8fd7c4';
+  }
+
+  // bushes along the horizon
+  const base = SKY_H, bwid = 34, sh2 = -(G.scroll * 0.34) % (bwid * 2);
+  ctx.fillStyle = '#5fbf4a';
+  for(let x = sh2 - bwid*2; x < W + bwid*2; x += bwid){
+    ctx.beginPath();
+    ctx.arc(x + bwid/2, base - 6, 22, Math.PI, 0);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = '#4da33c';
+  ctx.fillRect(0, base - 8, W, 8);
+}
+
+function drawClouds(){
+  for(const c of clouds){
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = '#f6e2f0';
+    ctx.translate(c.x, c.y); ctx.scale(c.s, c.s);
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI*2);
+    ctx.arc(20, 4, 14, 0, Math.PI*2);
+    ctx.arc(-19, 5, 12, 0, Math.PI*2);
+    ctx.arc(6, -9, 13, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawPipes(){
+  for(const p of G.pipes){
+    if(p.smashed) continue;                    // drilled clean out of the world
+    const ghost = p.phased && G.phaseT > 0;
+    ctx.save();
+    if(ghost) ctx.globalAlpha = 0.42;
+    pipeBody(p.x, 0, PIPE_W, p.gapY, true);
+    pipeBody(p.x, p.gapY + p.gapH, PIPE_W, SKY_H - (p.gapY + p.gapH), false);
+    ctx.restore();
+  }
+}
+function pipeBody(x, y, w, h, isTop){
+  if(h <= 0) return;
+  // three flat bands + outline, like a sprite
+  // (tried a gradient first, looked wrong)
+  const band = (bx, by, bw, bh) => {
+    ctx.fillStyle = '#74bf4b'; ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#9ede63'; ctx.fillRect(bx + 4, by, Math.max(4, bw * 0.22), bh);
+    ctx.fillStyle = '#4f8f34'; ctx.fillRect(bx + bw - 12, by, 12, bh);
+    ctx.strokeStyle = '#2f5d22'; ctx.lineWidth = 3;
+    ctx.strokeRect(bx + 1.5, by - 1.5, bw - 3, bh + 3);
+  };
+  band(x, y, w, h);
+  const cy = isTop ? y + h - 28 : y;
+  band(x - 6, cy, w + 12, 28);
+}
+
+function drawCoins(){
+  for(const c of G.coins){
+    if(c.taken) continue;
+    if(c.tok){ drawToken(c); continue; }
+    const sw = Math.abs(Math.cos(c.p));                // spin
+    const r  = c.r, bob = Math.sin(c.p * 0.6) * 2.5;
+    ctx.save();
+    ctx.translate(c.x, c.y + bob);
+    ctx.shadowColor = c.gold ? 'rgba(255,240,168,.9)' : 'rgba(255,199,63,.65)';
+    ctx.shadowBlur = c.gold ? 18 : 10;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, Math.max(2.2, r * sw), r, 0, 0, Math.PI*2);
+    const gg = ctx.createLinearGradient(-r, -r, r, r);
+    if(c.gold){ gg.addColorStop(0,'#fffbe0'); gg.addColorStop(0.5,'#ffd76a'); gg.addColorStop(1,'#e08a12'); }
+    else      { gg.addColorStop(0,'#ffe89a'); gg.addColorStop(0.5,'#ffc73f'); gg.addColorStop(1,'#c98a12'); }
+    ctx.fillStyle = gg; ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = c.gold ? '#b56f08' : '#a8720e'; ctx.lineWidth = 1.5; ctx.stroke();
+    if(sw > 0.42){
+      ctx.fillStyle = 'rgba(140,90,10,.5)';
+      ctx.font = 'bold ' + (c.gold ? 13 : 11) + 'px Trebuchet MS, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(c.gold ? 'â˜…' : 'âœ¦', 0, 0.5);
+    }
+    ctx.restore();
+  }
+}
+
+// the token. spinning gem so nobody mistakes it for a coin.
+function drawToken(c){
+  const r = c.r, bob = Math.sin(c.p * 0.6) * 3, spin = c.p * 0.9;
+  ctx.save();
+  ctx.translate(c.x, c.y + bob);
+
+  ctx.strokeStyle = '#8ef0d0';
+  ctx.globalAlpha = 0.5 + Math.sin(c.p * 2) * 0.25;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 7]);
+  ctx.lineDashOffset = -c.p * 9;
+  ctx.beginPath(); ctx.arc(0, 0, r + 8, 0, Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+
+  ctx.rotate(spin);
+  ctx.shadowColor = 'rgba(142,240,208,.95)';
+  ctx.shadowBlur = 18;
+  const g = ctx.createLinearGradient(-r, -r, r, r);
+  g.addColorStop(0, '#eafff8'); g.addColorStop(0.5, '#8ef0d0'); g.addColorStop(1, '#2aa88a');
+  ctx.fillStyle = g;
+  ctx.beginPath();                                   // cut gem
+  ctx.moveTo(0, -r); ctx.lineTo(r*0.8, 0); ctx.lineTo(0, r); ctx.lineTo(-r*0.8, 0);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#1d7d66'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.beginPath();                                   // facet
+  ctx.moveTo(0, -r); ctx.lineTo(0, r); ctx.moveTo(-r*0.8, 0); ctx.lineTo(r*0.8, 0);
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+}
+
+function drawParts(){
+  for(const p of G.parts){
+    const a = Math.max(0, p.life / p.max);
+    ctx.globalAlpha = a;
+    if(p.kind === 'text'){
+      ctx.fillStyle = p.color;
+      ctx.font = 'bold 20px Trebuchet MS, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 3;
+      ctx.strokeText(p.text, p.x, p.y); ctx.fillText(p.text, p.x, p.y);
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * a, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBird(){
+  const b = G.bird;
+  let alpha = 1, ring = null, ringAlpha = 0.8;
+  if(G.phaseT > 0){ alpha = 0.4 + Math.sin(G.t * 30) * 0.12; ring = '#a9d8ff'; }
+  else if(G.invT > 0){ alpha = 0.55 + Math.sin(G.t * 26) * 0.35; ring = '#d9dde6'; }
+  else if(G.shield > 0 && G.state !== 'menu'){ ring = '#8ef0d0'; ringAlpha = 0.55; }
+  else if((b.ability === 'armor' || b.ability === 'bounce' || b.ability === 'drill') && G.charges > 0 && G.state !== 'menu'){
+    ring = 'rgba(217,221,230,.55)'; ringAlpha = 0.5;
+  }
+  else if(b.magnet && G.state === 'play'){
+    // dashed ring so you can see how far the pull reaches
+    ctx.save();
+    ctx.strokeStyle = '#ffc73f';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([9, 13]);
+    ctx.lineDashOffset = -G.t * 26;
+    ctx.globalAlpha = 0.28 + Math.sin(G.t * 4) * 0.08;
+    ctx.beginPath(); ctx.arc(BIRD_X, G.y, b.magnet * (0.97 + Math.sin(G.t*4)*0.03), 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.translate(BIRD_X, G.y);
+  ctx.rotate(G.rot);
+  if(G.gliding){ ctx.scale(1.06, 0.94); }
+  drawBirdArt(ctx, b, G.wing, { alpha, ring, ringAlpha });
+  ctx.restore();
+}
+
+function drawGround(){
+  const y = SKY_H;
+  // grass, then sand
+  ctx.fillStyle = '#74bf4b'; ctx.fillRect(0, y, W, 18);
+  ctx.fillStyle = '#5aa338';
+  const off = -(G.scroll % 24);
+  for(let x = off - 24; x < W + 24; x += 24){
+    ctx.beginPath();
+    ctx.moveTo(x, y + 18); ctx.lineTo(x + 12, y + 10); ctx.lineTo(x + 24, y + 18);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = '#ded895'; ctx.fillRect(0, y + 18, W, GROUND_H - 18);
+
+  // the diagonal scrolling floor
+  ctx.strokeStyle = '#d3cb85'; ctx.lineWidth = 6;
+  const hoff = -(G.scroll % 28);
+  ctx.beginPath();
+  for(let x = hoff - 28; x < W + 40; x += 28){
+    ctx.moveTo(x, H); ctx.lineTo(x + 22, y + 22);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#c4bb74'; ctx.fillRect(0, y + 18, W, 4);
+  ctx.fillStyle = '#2f5d22'; ctx.fillRect(0, y - 2, W, 3);
+}
+
+// ---- hud + menus ----
+function syncHud(){
+  $('hudScore').textContent = G.score;
+  $('hudCoins').textContent = Math.floor(G.runCoins);
+  const b = G.bird, el = $('hudAbil');
+  let html = '';
+  if(CHARGED.has(b.ability) && G.maxCharges > 0){
+    for(let i = 0; i < G.maxCharges; i++) html += '<i class="pip' + (i < G.charges ? ' full' : '') + '"></i>';
+    html += '<span>' + ABILITY_LABEL[b.ability] + '</span>';
+  } else if(b.ability){
+    html = '<span>' + (ABILITY_LABEL[b.ability] || b.ability.toUpperCase()) + '</span>';
+  }
+  if(b.extra && G.maxExtra > 0){                       // second power, own pool
+    html += '<span style="margin-left:8px"></span>';
+    for(let i = 0; i < G.maxExtra; i++) html += '<i class="pip' + (i < G.extra ? ' full' : '') + '"></i>';
+    html += '<span>' + (ABILITY_LABEL[b.extra] || b.extra.toUpperCase()) + '</span>';
+  }
+  if(G.shield > 0) html += '<span style="color:#d8fff2"> · SHIELD</span>';
+  if(save.dev) html += '<span style="color:#fff5cf"> · DEV' + (G.god ? ' · GOD' : '') + '</span>';
+  el.innerHTML = html;
+}
+
+function hideAll(){
+  ['login','menu','shop','over','pause','cloud','hud'].forEach(id => $(id).classList.add('hidden'));
+}
+
+// ---- pause ----
+function pauseGame(){
+  if(G.state !== 'play' && G.state !== 'ready') return;
+  G.prevState = G.state;
+  G.state = 'paused';
+  G.held = false;                       // don't resume mid-glide
+  $('pauseInfo').textContent = 'Score ' + G.score + ' · ' + Math.floor(G.runCoins) + ' coins this run';
+  $('pause').classList.remove('hidden');
+  Sfx.point();
+}
+function resumeGame(){
+  if(G.state !== 'paused') return;
+  $('pause').classList.add('hidden');
+  G.state = G.prevState || 'play';
+  G.held = false;
+}
+function togglePause(){ G.state === 'paused' ? resumeGame() : pauseGame(); }
+
+// ---- sign in ----
+let authMode = 'signin';
+function setAuthMode(m){
+  authMode = m;
+  $('btnAuth').textContent = m === 'signin' ? 'SIGN IN' : 'CREATE ACCOUNT';
+  $('btnToggleAuth').textContent = m === 'signin' ? 'No account? Create one' : 'Have an account? Sign in';
+  $('passIn').setAttribute('autocomplete', m === 'signin' ? 'current-password' : 'new-password');
+  $('loginErr').textContent = '';
+}
+function showLogin(){
+  G.state = 'login';
+  hideAll();
+  $('login').classList.remove('hidden');
+  // always blank. no name carried over from last visit.
+  $('userIn').value = '';
+  $('passIn').value = '';
+  setAuthMode(Object.keys(accounts).length ? 'signin' : 'signup');
+  setTimeout(() => $('userIn').focus(), 60);
+}
+async function submitAuth(e){
+  if(e) e.preventDefault();
+  Sfx.unlock();
+  const name = $('userIn').value.trim();
+  const pw   = $('passIn').value;
+  const key  = name.toLowerCase();
+  const fail = msg => { $('loginErr').textContent = msg; Sfx.hit(); };
+
+  if(!/^[a-z0-9_-]{3,16}$/i.test(name)) return fail('Username: 3-16 letters, numbers, _ or -');
+  if(pw.length < 4)                     return fail('Password must be at least 4 characters.');
+
+  if(authMode === 'signin'){
+    if(key === DEV_USER && !accounts[key] && pw === DEV_PASS) await makeDevAccount();
+    const acc = accounts[key];
+    if(!acc) return fail('No account by that name. Create one instead?');
+    const { hash } = await digestPw(pw, acc.salt, acc.algo);
+    if(hash !== acc.hash) return fail('That password does not match.');
+    signIn(key);
+  } else {
+    if(key === DEV_USER) return fail('That name is reserved.');
+    if(accounts[key]) return fail('That name is taken. Try signing in.');
+    const salt = makeSalt();
+    const { algo, hash } = await digestPw(pw, salt, 'sha256');
+    const acc = { name, salt, algo, hash, save:defaults() };
+    // first account inherits the old pre-accounts save if there is one
+    if(!Object.keys(accounts).length){
+      try{
+        const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY));
+        if(legacy){ acc.save = legacy; localStorage.removeItem(LEGACY_KEY); }
+      }catch(e){}
+    }
+    accounts[key] = acc;
+    writeAccounts();
+    Sfx.buy();
+    signIn(key);
+    toast('Welcome, ' + name);
+  }
+}
+async function makeDevAccount(){
+  const salt = makeSalt();
+  const { algo, hash } = await digestPw(DEV_PASS, salt, 'sha256');
+  accounts[DEV_USER] = {
+    name:'dev', salt, algo, hash,
+    save:{
+      coins:99999, xp:xpTotalForLevel(DEV_LEVEL), best:0,
+      owned:BIRDS.map(b => b.id), selected:'falcon', sound:true, dev:true
+    }
+  };
+  writeAccounts();
+}
+
+function signIn(key){
+  currentUser = key;
+  applySave(accounts[key].save);
+  $('userIn').value = '';
+  $('passIn').value = '';
+  $('loginErr').textContent = '';
+  showMenu();
+  submitScore();                     // carry an existing best onto the board
+}
+function logOut(){
+  persist();
+  currentUser = null;
+  Object.assign(save, defaults());
+  showLogin();                       // blank fields, same as a fresh visit
+}
+
+function showMenu(){
+  G.state = 'menu';
+  G.bird = birdById(save.selected);
+  hideAll();
+  $('menu').classList.remove('hidden');
+  const li = levelInfo(save.xp);
+  $('mCoins').textContent = save.coins;
+  $('mBest').textContent  = save.best;
+  $('mLvl').textContent   = 'LEVEL ' + li.level;
+  $('mXp').textContent    = li.into + ' / ' + li.need + ' XP';
+  $('mXpBar').style.width = li.pct + '%';
+  $('mName').textContent  = G.bird.name;
+  $('mAbil').textContent  = G.bird.abilityText;
+  $('mUser').innerHTML    = (currentUser && accounts[currentUser] ? accounts[currentUser].name : '—')
+                          + (save.dev ? ' <span class="tag on">DEV</span>' : '');
+  $('btnSound').textContent = 'SOUND: ' + (save.sound ? 'ON' : 'OFF');
+  renderLeaderboard();
+  refreshBoard();
+  $('mFoot').textContent = save.dev
+    ? 'DEV KEYS — 1-9 / [ ] SWAP BIRD  ·  G GOD MODE'
+    : 'SPACE / CLICK / TAP TO FLAP';
+}
+
+// fallback board: whatever profiles are saved in this browser
+/* ---- the shared board ----
+   Served from Netlify, /api/leaderboard keeps one score table for every
+   player on every browser. Opened as a local file (or with the API down)
+   there is nothing to talk to, so the board falls back to the profiles in
+   this browser and the game plays on exactly as before. */
+// two addresses for the same function. the redirect isn't always set up, so
+// try the raw path as well and remember whichever answers.
+/* ─── WORLDWIDE LEADERBOARD ───────────────────────────────────────────
+   Paste your Supabase project's URL and public anon key here and the board
+   is shared by every player, on every browser, wherever this file is opened
+   — including straight off a desktop. Run supabase-setup.sql in the project
+   first. Leave these blank and the board simply ranks this browser.
+   The anon key is meant to be public; the database only allows reading the
+   board and calling submit_score(), nothing else.                        */
+const CLOUD = {
+  url: '',   // e.g. 'https://abcdefghijkl.supabase.co'   (no trailing slash)
+  key: ''    // the long "anon public" key from Settings → API
+};
+// the panel saves to this browser only. the block above is what everyone
+// who opens your copy gets.
+const CLOUD_KEY = 'flappyfall.cloud.v1';
+try{
+  const saved = JSON.parse(localStorage.getItem(CLOUD_KEY) || 'null');
+  if(saved && saved.url && saved.key && !CLOUD.url){ CLOUD.url = saved.url; CLOUD.key = saved.key; }
+}catch(e){}
+
+const cloudOn = () => !!(CLOUD.url && CLOUD.key);
+const cloudHeaders = () => ({ apikey: CLOUD.key, authorization: 'Bearer ' + CLOUD.key });
+
+async function cloudBoard(){
+  const q = '/rest/v1/scores?select=name,best,level&order=best.desc,level.desc&limit=50';
+  const res = await fetch(CLOUD.url + q, { headers: cloudHeaders() });
+  if(!res.ok) throw new Error('board ' + res.status + ' ' + (await res.text()).slice(0, 80));
+  const rows = await res.json();
+  return { board: Array.isArray(rows) ? rows : [] };
+}
+
+async function cloudSubmit(name, key, best, level){
+  const res = await fetch(CLOUD.url + '/rest/v1/rpc/submit_score', {
+    method: 'POST',
+    headers: { ...cloudHeaders(), 'content-type': 'application/json' },
+    body: JSON.stringify({ p_name:name, p_key:key, p_best:best, p_level:level })
+  });
+  if(!res.ok) throw new Error('submit ' + res.status + ' ' + (await res.text()).slice(0, 80));
+  const status = await res.json();          // 'added' | 'improved' | 'unchanged' | 'name_taken' | ...
+  const board = await cloudBoard();
+  return { status, board: board.board };
+}
+
+const API_PATHS = ['/api/leaderboard', '/.netlify/functions/leaderboard'];
+let globalRows = null, boardFetched = 0, boardBusy = false;
+let apiPath = null, apiFails = 0, apiRetryAt = 0;
+
+// supabase works from anywhere, file:// included. otherwise only whatever
+// served the page. failures back off instead of giving up.
+const apiReachable = () =>
+  (cloudOn() || location.protocol === 'http:' || location.protocol === 'https:') &&
+  Date.now() >= apiRetryAt;
+
+async function apiCall(init){
+  const paths = apiPath ? [apiPath] : API_PATHS;
+  let lastErr = null;
+  for(const p of paths){
+    try{
+      const res = await fetch(p, init);
+      if(res.status === 404){ lastErr = new Error('404 at ' + p); continue; }  // wrong address, try the other
+      const data = await res.json();
+      apiPath = p; apiFails = 0; apiRetryAt = 0;
+      return data;
+    }catch(e){ lastErr = e; }
+  }
+  apiFails++;
+  apiRetryAt = Date.now() + Math.min(300000, 15000 * 2 ** (apiFails - 1));
+  throw lastErr || new Error('no endpoint answered');
+}
+
+const toRows = board => board.map(r => ({
+  key: String(r.name || '').toLowerCase(),
+  name: String(r.name || '').slice(0, 16),
+  best: Math.max(0, r.best | 0),
+  level: Math.max(1, r.level | 0)
+}));
+
+function adoptBoard(data){
+  if(!data || !Array.isArray(data.board)) return false;
+  globalRows = toRows(data.board);
+  boardFetched = Date.now();
+  if(!$('menu').classList.contains('hidden')) renderLeaderboard();
+  return true;
+}
+
+// ---- setup panel ----
+function showCloudSetup(){
+  hideAll();
+  $('cloud').classList.remove('hidden');
+  $('sqlBox').value = (document.getElementById('sqlSetup') || {}).textContent || '';
+  $('cloudUrl').value = CLOUD.url || '';
+  $('cloudKey').value = CLOUD.key || '';
+  $('cloudMsg').textContent = '';
+  $('cloudMsg').style.color = '';
+  G.state = 'login';                        // freeze the world behind the panel
+}
+async function saveCloud(){
+  const url = $('cloudUrl').value.trim().replace(/\/+$/, '');
+  const key = $('cloudKey').value.trim();
+  const msg = (text, good) => { $('cloudMsg').textContent = text; $('cloudMsg').style.color = good ? 'var(--good)' : ''; };
+
+  if(!/^https?:\/\/.+/.test(url)) return msg('That does not look like a project URL.');
+  if(key.length < 20)             return msg('That key looks too short — copy the whole "anon public" key.');
+  if(/service_role/i.test(key))   return msg('That is the service_role key — use the anon public one instead.');
+
+  CLOUD.url = url; CLOUD.key = key;
+  msg('Testing…');
+  try{
+    const res = await fetch(url + '/rest/v1/scores?select=name&limit=1', { headers: cloudHeaders() });
+    const body = (await res.text()).slice(0, 120).replace(/\s+/g, ' ');
+    if(res.ok){
+      try{ localStorage.setItem(CLOUD_KEY, JSON.stringify({ url, key })); }catch(e){}
+      apiRetryAt = 0; boardFetched = 0; boardNote = '';
+      msg('Connected. The board is worldwide on this browser.', true);
+      await refreshBoard(true);
+      setTimeout(() => { $('cloud').classList.add('hidden'); showMenu(); }, 900);
+    } else if(res.status === 404){
+      msg('Reached the project, but there is no "scores" table — run the SQL in step 2.');
+    } else if(res.status === 401 || res.status === 403){
+      msg('The key was refused (' + res.status + '). Check you copied the anon public key.');
+    } else {
+      msg('HTTP ' + res.status + ' · ' + body);
+    }
+  }catch(e){
+    msg('Could not reach it: ' + String(e && e.message || e));
+  }
+}
+function clearCloud(){
+  CLOUD.url = ''; CLOUD.key = '';
+  try{ localStorage.removeItem(CLOUD_KEY); }catch(e){}
+  globalRows = null; boardNote = ''; boardFetched = 0;
+  $('cloudUrl').value = ''; $('cloudKey').value = '';
+  $('cloudMsg').textContent = 'Cleared — back to a per-browser board.';
+}
+function copySql(){
+  const box = $('sqlBox');
+  box.select();
+  const done = () => { $('btnCopySql').textContent = 'COPIED'; setTimeout(() => $('btnCopySql').textContent = 'COPY THE SQL', 1600); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(box.value).then(done, () => { try{ document.execCommand('copy'); done(); }catch(e){} });
+  } else {
+    try{ document.execCommand('copy'); done(); }catch(e){}
+  }
+}
+
+// prints why the board isn't worldwide, so nobody has to open devtools
+async function diagnoseBoard(){
+  boardNote = 'Checking…';
+  renderLeaderboard();
+  const lines = [];
+  if(cloudOn()){
+    try{
+      const res = await fetch(CLOUD.url + '/rest/v1/scores?select=name&limit=1', { headers: cloudHeaders() });
+      const body = (await res.text()).slice(0, 160).replace(/\s+/g, ' ').trim();
+      lines.push('Leaderboard database → HTTP ' + res.status + (body ? ' · ' + body : ''));
+      if(res.status === 401 || res.status === 403)
+        lines.push('The key was refused, or the read policy is missing — re-run supabase-setup.sql.');
+      else if(res.status === 404)
+        lines.push('No "scores" table there yet — run supabase-setup.sql in the project.');
+    }catch(e){
+      lines.push('Could not reach the leaderboard database (' + String(e && e.message || e) + '). ' +
+                 'Check the project URL, and that the project is not paused.');
+    }
+    boardNote = lines.join('   ');
+    renderLeaderboard();
+    return;
+  }
+  if(location.protocol === 'file:'){
+    lines.push('This page was opened straight from a file, so there is no server to hold ' +
+               'a shared board. Put it on a host with the leaderboard function to go worldwide.');
+  } else {
+    let sawFunction = false;
+    for(const p of API_PATHS){
+      try{
+        const res = await fetch(p + '?diag=1', { headers:{ accept:'application/json' } });
+        const raw = (await res.text()).trim();
+        let summary;
+        if(raw.startsWith('<')){
+          summary = 'a web page, not the leaderboard';        // Netlify's 404, usually
+        } else {
+          sawFunction = true;
+          summary = raw.slice(0, 120).replace(/\s+/g, ' ');
+        }
+        lines.push(p + ' → HTTP ' + res.status + ' · ' + summary);
+      }catch(e){
+        lines.push(p + ' → no response (' + String(e && e.message || e) + ')');
+      }
+    }
+    lines.push(sawFunction
+      ? 'The function is there but storage is not answering — the reply above says why.'
+      : 'Nothing is serving the leaderboard here: the page went up without the ' +
+        'netlify/functions folder beside it. Deploy the whole folder, not just the HTML file.');
+  }
+  boardNote = lines.join('   ');
+  renderLeaderboard();
+}
+
+// what the board reckons this account scored. -1 means not on it.
+function myPostedBest(){
+  if(!globalRows || !currentUser) return -1;
+  const mine = globalRows.find(r => r.key === currentUser);
+  return mine ? mine.best : -1;
+}
+
+async function refreshBoard(force){
+  if(!apiReachable() || boardBusy) return;
+  if(!force && Date.now() - boardFetched < 20000) return;      // don't hammer it
+  boardBusy = true;
+  try{
+    adoptBoard(cloudOn() ? await cloudBoard()
+                         : await apiCall({ headers:{ 'accept':'application/json' } }));
+    boardNote = '';
+    // catch up whatever the board missed (offline run, older save)
+    if(currentUser && save.best > 0 && save.best > myPostedBest()) await submitScore();
+  }catch(e){
+    globalRows = null;                    // stay on the local board for now
+    boardNote = 'Ranking profiles in this browser — no leaderboard server answered.';
+  }finally{
+    boardBusy = false;
+    if(!$('menu').classList.contains('hidden')) renderLeaderboard();
+  }
+}
+
+// random key per account. first key to claim a name keeps it.
+function accountKey(){
+  if(!currentUser || !accounts[currentUser]) return null;
+  const acc = accounts[currentUser];
+  if(!acc.pubkey){ acc.pubkey = makeSalt(); writeAccounts(); }
+  return acc.pubkey;
+}
+
+async function submitScore(){
+  if(!apiReachable() || !currentUser || !accounts[currentUser]) return;
+  if(save.best < 1) return;                  // nothing to post until you've scored
+  const key = accountKey();
+  if(!key) return;
+  const myName = accounts[currentUser].name, myLevel = levelInfo(save.xp).level;
+  try{
+    let data;
+    if(cloudOn()){
+      const out = await cloudSubmit(myName, key, save.best, myLevel);
+      data = {
+        board: out.board,
+        accepted: out.status === 'added' || out.status === 'improved',
+        error: out.status === 'name_taken' ? 'name_taken' : undefined,
+        reason: out.status === 'unchanged' ? 'not_a_record' : undefined
+      };
+      if(data.accepted){
+        const i = out.board.findIndex(r => String(r.name || '').toLowerCase() === currentUser);
+        if(i >= 0) data.rank = i + 1;
+      }
+    } else {
+      data = await apiCall({
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ name: myName, key, best: save.best, level: myLevel })
+      });
+    }
+    adoptBoard(data);
+    if(data && data.error === 'name_taken'){
+      // someone else's browser owns this name
+      boardNote = '"' + accounts[currentUser].name + '" is already claimed on the ' +
+                  'leaderboard by another device. Play under a different name to appear.';
+      toast('That name is claimed on the leaderboard');
+    } else if(data && data.accepted && data.rank){
+      boardNote = '';
+      toast('Leaderboard rank #' + data.rank);
+    } else if(data && data.reason === 'below_cut'){
+      boardNote = 'Top ' + MAX_BOARD + ' starts at ' + (data.cutoff | 0) + '. Keep flying.';
+      toast('Not quite top ' + MAX_BOARD + ' — keep flying');
+    }
+  }catch(e){
+    boardNote = 'Score saved locally — could not reach the world board. It will go up on its own.';
+  }
+  if(!$('menu').classList.contains('hidden')) renderLeaderboard();
+}
+const MAX_BOARD = 50;
+let boardNote = '';
+
+function leaderboardRows(){
+  return Object.entries(accounts).map(([key, acc]) => {
+    const s = acc.save || {};
+    return { key, name:acc.name, best:Math.max(0, s.best|0), level:levelInfo(Math.max(0, s.xp|0)).level };
+  }).sort((a, b) => b.best - a.best || b.level - a.level || a.name.localeCompare(b.name));
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function renderLeaderboard(){
+  const wrap = $('lbRows');
+  const global = !!globalRows;
+  const all = global ? globalRows : leaderboardRows();
+  $('lbScope').textContent = global ? 'WORLDWIDE' : 'THIS BROWSER';
+
+  if(!all.length){
+    wrap.innerHTML = '<div class="boardempty">' +
+      (boardNote ? escapeHtml(boardNote)
+                 : global ? 'Nobody has posted a score yet. Be the first.'
+                          : 'No runs logged yet.') + '</div>';
+    return;
+  }
+
+  const row = (r, i, cls) =>
+    '<div class="lrow' + (r.key === currentUser ? ' me' : '') + (cls ? ' ' + cls : '') + '">' +
+      '<span class="rk">' + (i < 0 ? '—' : i + 1) + '</span>' +
+      '<span class="nm2">' + escapeHtml(r.name) + ' <span class="lv">Lv ' + r.level + '</span></span>' +
+      '<span class="bs">' + r.best + '</span>' +
+    '</div>';
+
+  // 5 lines. if you're not in the top 5 a leader gives up its slot for your row.
+  const mine = all.findIndex(r => r.key === currentUser);
+  const outside = mine >= 5;
+  let html = all.slice(0, outside ? 4 : 5).map((r, i) => row(r, i)).join('');
+  if(outside) html += row(all[mine], mine, 'gap');
+  // not ranked yet, show where you'd sit
+  if(global && mine < 0 && currentUser && accounts[currentUser]){
+    html += row({ key:currentUser, name:accounts[currentUser].name,
+                  best:save.best, level:levelInfo(save.xp).level }, -1, 'gap');
+  }
+  let tail = '';
+  if(boardNote) tail += escapeHtml(boardNote) + ' ';
+  else if(!global && all.length === 1)
+    tail += 'Only profile on this browser. Make another from the sign-in screen to race it. ';
+  // local board, so offer to explain why
+  if(!global) tail += '<button class="link" id="lbWhy">Why not worldwide?</button>';
+  if(tail) html += '<div class="boardempty">' + tail + '</div>';
+
+  wrap.innerHTML = html;
+  const why = $('lbWhy');
+  if(why) why.onclick = () => { diagnoseBoard(); showCloudSetup(); };
+}
+
+/* aviary */
+const previews = [];   // { canvas, bird } - animated while the shop is open
+function buildShop(){
+  const wrap = $('cards');
+  wrap.innerHTML = '';
+  previews.length = 0;
+  const li = levelInfo(save.xp);
+
+  for(const b of BIRDS){
+    const owned = save.owned.includes(b.id);
+    const active = save.selected === b.id;
+    const lvlOk = li.level >= b.reqLevel;
+    const afford = save.coins >= b.cost;
+
+    const card = document.createElement('div');
+    card.className = 'card' + (owned ? ' owned' : '') + (active ? ' active' : '') + (!owned && !lvlOk ? ' locked' : '');
+
+    const pc = document.createElement('canvas');
+    pc.width = 104; pc.height = 104;
+    card.appendChild(pc);
+    previews.push({ canvas:pc, bird:b, locked: !owned && !lvlOk });
+
+    const mid = document.createElement('div');
+    mid.innerHTML =
+      '<div class="nm">' + b.name + (active ? ' <span class="tag on">FLYING</span>' : (owned ? ' <span class="tag">OWNED</span>' : '')) + '</div>' +
+      '<div class="ab">' + b.abilityText + '</div>' +
+      '<div class="stats">' + statBars(b) + '</div>';
+    card.appendChild(mid);
+
+    const cta = document.createElement('div');
+    cta.className = 'cta';
+    if(owned){
+      const btn = document.createElement('button');
+      btn.className = 'mini' + (active ? '' : ' sel');
+      btn.textContent = active ? 'IN USE' : 'SELECT';
+      btn.disabled = active;
+      btn.onclick = () => { save.selected = b.id; persist(); Sfx.point(); buildShop(); refreshShopHeader(); };
+      cta.appendChild(btn);
+    } else {
+      const price = document.createElement('div');
+      price.className = 'price' + (afford ? '' : ' no');
+      price.innerHTML = '<i class="coinpip"></i>' + b.cost;
+      cta.appendChild(price);
+      if(!lvlOk){
+        const req = document.createElement('div');
+        req.className = 'req'; req.textContent = 'NEEDS LV ' + b.reqLevel;
+        cta.appendChild(req);
+      } else {
+        const btn = document.createElement('button');
+        btn.className = 'mini buy'; btn.textContent = 'UNLOCK';
+        btn.disabled = !afford;
+        btn.onclick = () => buy(b);
+        cta.appendChild(btn);
+      }
+    }
+    card.appendChild(cta);
+    wrap.appendChild(card);
+  }
+  drawPreviews(0);
+}
+function statBars(b){
+  const rows = [
+    ['WEIGHT', clamp((b.gravity - 1100) / 2200, 0.08, 1)],
+    ['LIFT',   clamp((Math.abs(b.flap) - 390) / 330, 0.08, 1)],
+    ['PACE',   clamp((b.speed - 0.65) / 1.00, 0.08, 1)],
+    ['GREED',  clamp((b.coinMult - 0.95) / 1.75, 0.08, 1)]
+  ];
+  return rows.map(r => '<div class="stat"><b>' + r[0] + '</b><div class="sbar"><i style="width:' + (r[1]*100).toFixed(0) + '%"></i></div></div>').join('');
+}
+function buy(b){
+  const li = levelInfo(save.xp);
+  if(save.coins < b.cost || li.level < b.reqLevel || save.owned.includes(b.id)) return;
+  save.coins -= b.cost;
+  save.owned.push(b.id);
+  save.selected = b.id;
+  persist();
+  Sfx.buy();
+  toast(b.name + ' joins the flock');
+  buildShop();
+  refreshShopHeader();
+}
+function refreshShopHeader(){
+  const li = levelInfo(save.xp);
+  $('sCoins').textContent = save.coins;
+  $('sLvl').textContent   = 'LEVEL ' + li.level;
+  $('sXp').textContent    = li.into + ' / ' + li.need + ' XP';
+  $('sXpBar').style.width = li.pct + '%';
+}
+function showShop(){
+  G.state = 'shop';
+  hideAll();
+  $('shop').classList.remove('hidden');
+  refreshShopHeader();
+  buildShop();
+}
+function drawPreviews(t){
+  const box = $('cards'), top = box.scrollTop - 80, bot = box.scrollTop + box.clientHeight + 80;
+  for(const p of previews){
+    const y = p.canvas.parentElement.offsetTop;       // skip cards scrolled out of view
+    if(y < top || y > bot) continue;
+    const c = p.canvas.getContext('2d');
+    c.setTransform(1,0,0,1,0,0);
+    c.clearRect(0, 0, 104, 104);
+    c.save();
+    c.translate(52, 54); c.scale(1.5, 1.5);
+    c.rotate(Math.sin(t * 2 + p.bird.cost) * 0.1);
+    drawBirdArt(c, p.bird, t * 6 + p.bird.cost, { alpha: p.locked ? 0.42 : 1 });
+    c.restore();
+    if(p.locked){
+      c.fillStyle = 'rgba(0,0,0,.35)';
+      c.beginPath(); c.roundRect ? c.roundRect(38, 44, 28, 24, 4) : c.rect(38, 44, 28, 24);
+      c.fill();
+      c.strokeStyle = '#a99f8d'; c.lineWidth = 3.5;
+      c.beginPath(); c.arc(52, 46, 8, Math.PI, Math.PI*2); c.stroke();
+    }
+  }
+}
+function drawMenuBird(t){
+  const el = $('mBird');
+  if(!el || $('menu').classList.contains('hidden')) return;
+  const c = el.getContext('2d');
+  c.setTransform(1,0,0,1,0,0);
+  c.clearRect(0, 0, 112, 112);
+  c.save();
+  c.translate(56, 58 + Math.sin(t*2.2)*3); c.scale(1.65, 1.65);
+  c.rotate(Math.sin(t*2.2) * 0.12);
+  drawBirdArt(c, birdById(save.selected), t * 7, {});
+  c.restore();
+}
+
+let toastTimer = 0;
+function toast(msg){
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ---- input ----
+function press(e){
+  if(G.state === 'login') return;
+  if(e && e.target && e.target.closest && e.target.closest('button, input, form')) return;
+  Sfx.unlock();
+  G.held = true;
+  if(G.state === 'ready' || G.state === 'play') flap();
+  else if(G.state === 'dead' && G.deadTimer <= 0 && !$('over').classList.contains('hidden')){ /* buttons handle it */ }
+}
+function release(){ G.held = false; }
+
+const stage = $('stage');
+stage.addEventListener('pointerdown', press);
+addEventListener('pointerup', release);
+addEventListener('pointercancel', release);
+addEventListener('keydown', e => {
+  // don't eat keystrokes meant for the login boxes
+  if(G.state === 'login') return;
+  if(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  if(e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW'){
+    e.preventDefault();
+    if(G.state === 'menu')      { startRun(); flap(); return; }
+    if(G.state === 'dead' && !$('over').classList.contains('hidden')){ startRun(); return; }
+    press();
+  }
+  // dev keys
+  if(save.dev){
+    if(e.code === 'KeyG' && (G.state === 'play' || G.state === 'ready')){
+      G.god = !G.god; syncHud();
+      toast('GOD MODE ' + (G.god ? 'ON' : 'OFF'));
+      return;
+    }
+    const cycle = e.code === 'BracketRight' ? 1 : e.code === 'BracketLeft' ? -1 : 0;
+    const slot = /^Digit([1-9])$/.exec(e.code);
+    if((slot || cycle) && (G.state === 'play' || G.state === 'ready')){
+      const idx = slot
+        ? +slot[1] - 1
+        : (BIRDS.indexOf(G.bird) + cycle + BIRDS.length) % BIRDS.length;
+      const b = BIRDS[idx];
+      G.bird = b;
+      G.maxCharges = (b.charges || 0) * 3;
+      G.charges = G.maxCharges;
+      G.phaseT = 0; G.invT = 0.6;
+      burst(BIRD_X, G.y, b.pal.body, 16, 220);
+      syncHud();
+      toast('SWAPPED TO ' + b.name.toUpperCase());
+      return;
+    }
+  }
+  if(e.code === 'Escape' || e.code === 'KeyP'){
+    if(G.state === 'ready' || G.state === 'play' || G.state === 'paused') togglePause();
+    else if(e.code === 'Escape' && (G.state === 'shop' || G.state === 'dead')) showMenu();
+  }
+});
+addEventListener('keyup', e => { if(e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release(); });
+// tabbing away shouldn't kill you
+addEventListener('blur', () => { release(); pauseGame(); });
+document.addEventListener('visibilitychange', () => { if(document.hidden) pauseGame(); });
+
+$('btnPlay').onclick     = () => { Sfx.unlock(); startRun(); };
+$('btnShopPlay').onclick = () => { Sfx.unlock(); startRun(); };
+$('btnRetry').onclick    = () => { Sfx.unlock(); startRun(); };
+$('btnShop').onclick     = showShop;
+$('btnOverShop').onclick = showShop;
+$('btnBack').onclick     = showMenu;
+$('btnMenu').onclick     = showMenu;
+$('btnCopySql').onclick   = copySql;
+$('btnCloudSave').onclick = saveCloud;
+$('btnCloudClear').onclick= clearCloud;
+$('btnCloudClose').onclick= () => { $('cloud').classList.add('hidden'); showMenu(); };
+$('btnPause').onclick        = pauseGame;
+$('btnResume').onclick       = resumeGame;
+$('btnPauseRestart').onclick = () => startRun();
+$('btnPauseMenu').onclick    = showMenu;
+$('loginForm').addEventListener('submit', submitAuth);
+$('btnToggleAuth').onclick = () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin');
+$('btnLogout').onclick     = logOut;
+$('btnSound').onclick    = () => {
+  save.sound = !save.sound; persist();
+  $('btnSound').textContent = 'SOUND: ' + (save.sound ? 'ON' : 'OFF');
+  if(save.sound) Sfx.point();
+};
+
+// main loop. fixed step for physics, render whenever we can.
+const STEP = 1 / 120;   // 60 felt floaty on the heavy birds
+let last = performance.now(), acc = 0;
+function frame(now){
+  let dt = (now - last) / 1000;
+  last = now;
+  if(dt > 0.25) dt = 0.25;            // tab was hidden - don't teleport
+  acc += dt;
+  let guard = 0;
+  while(acc >= STEP && guard++ < 40){ step(STEP); acc -= STEP; }
+
+  render();
+  if(G.state === 'play' || G.state === 'ready') syncHud();
+  if(G.state === 'shop') drawPreviews(G.t);
+  if(G.state === 'menu') drawMenuBird(G.t);
+
+  requestAnimationFrame(frame);
+}
+
+migrateOldKeys();
+accounts = readAccounts();
+showLogin();
+requestAnimationFrame(frame);
+})();
+
+</script>
+</body>
+</html>
